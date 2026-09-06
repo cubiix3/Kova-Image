@@ -74,13 +74,13 @@ pub fn open_image(owner: isize) -> Result<Option<PathBuf>, Error> {
             )
             .map_err(failure)?;
         dialog
-            .SetTitle(w!("Open image — Kova Image"))
+            .SetTitle(w!("Open local media — Kova Image"))
             .map_err(failure)?;
         dialog
             .SetFileTypes(&[
                 COMDLG_FILTERSPEC {
                     pszName: w!("Images"),
-                    pszSpec: w!("*.jpg;*.jpeg;*.png;*.apng;*.gif;*.webp;*.bmp;*.tif;*.tiff;*.ico"),
+                    pszSpec: w!("*.jpg;*.jpeg;*.png;*.apng;*.gif;*.webp;*.bmp;*.tif;*.tiff;*.ico;*.mp4;*.m4v;*.mov;*.webm;*.mkv"),
                 },
                 COMDLG_FILTERSPEC {
                     pszName: w!("All files"),

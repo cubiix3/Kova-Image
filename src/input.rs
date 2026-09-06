@@ -2,6 +2,11 @@ use slint::winit_030::winit::keyboard::{Key, ModifiersState, NamedKey};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Open,
+    Mute,
+    SeekBack,
+    SeekForward,
+    Register,
+    DefaultApps,
     Previous,
     Next,
     First,
@@ -36,6 +41,8 @@ pub fn shortcut(key: &Key, modifiers: ModifiersState) -> Option<Action> {
     }
     if modifiers.control_key() {
         return match key {
+            Key::Named(NamedKey::ArrowLeft) => Some(SeekBack),
+            Key::Named(NamedKey::ArrowRight) => Some(SeekForward),
             Key::Character(s) if s.eq_ignore_ascii_case("o") => Some(Open),
             Key::Character(s) if s.eq_ignore_ascii_case("c") => Some(if modifiers.shift_key() {
                 CopyPath
@@ -71,6 +78,7 @@ pub fn shortcut(key: &Key, modifiers: ModifiersState) -> Option<Action> {
             "h" => Some(FlipHorizontal),
             "v" => Some(FlipVertical),
             "i" => Some(Info),
+            "m" => Some(Mute),
             _ => None,
         },
         _ => None,
@@ -80,6 +88,9 @@ pub fn command(name: &str) -> Option<Action> {
     use Action::*;
     Some(match name {
         "open" => Open,
+        "mute" => Mute,
+        "register" => Register,
+        "defaults" => DefaultApps,
         "previous" => Previous,
         "next" => Next,
         "first" => First,

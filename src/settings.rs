@@ -8,6 +8,8 @@ pub struct Settings {
     pub fit: Fit,
     pub autoplay: bool,
     pub looping: bool,
+    pub video_autoplay: bool,
+    pub video_loop: bool,
     pub natural_sort: bool,
     pub auto_hide: bool,
     pub wheel_zoom: bool,
@@ -20,6 +22,8 @@ impl Default for Settings {
             fit: Fit::Window,
             autoplay: true,
             looping: true,
+            video_autoplay: true,
+            video_loop: false,
             natural_sort: true,
             auto_hide: true,
             wheel_zoom: true,
@@ -73,6 +77,16 @@ impl Settings {
                             s.looping = v
                         }
                     }
+                    "video_autoplay" => {
+                        if let Some(v) = enabled {
+                            s.video_autoplay = v;
+                        }
+                    }
+                    "video_loop" => {
+                        if let Some(v) = enabled {
+                            s.video_loop = v;
+                        }
+                    }
                     "natural_sort" => {
                         if let Some(v) = enabled {
                             s.natural_sort = v
@@ -110,7 +124,7 @@ impl Settings {
         std::fs::create_dir_all(parent)?;
         let temp = parent.join(format!("settings-{}.tmp", std::process::id()));
         let text = format!(
-            "fit={}\nautoplay={}\nlooping={}\nnatural_sort={}\nauto_hide={}\nwheel_zoom={}\nlight_background={}\npixelated={}\n",
+            "fit={}\nautoplay={}\nlooping={}\nnatural_sort={}\nauto_hide={}\nwheel_zoom={}\nlight_background={}\npixelated={}\nvideo_autoplay={}\nvideo_loop={}\n",
             match self.fit {
                 Fit::Width => "width",
                 Fit::Actual => "actual",
@@ -122,7 +136,9 @@ impl Settings {
             self.auto_hide,
             self.wheel_zoom,
             self.light_background,
-            self.pixelated
+            self.pixelated,
+            self.video_autoplay,
+            self.video_loop
         );
         let mut file = std::fs::File::create(&temp)?;
         file.write_all(text.as_bytes())?;

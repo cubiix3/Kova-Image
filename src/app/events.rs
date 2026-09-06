@@ -55,13 +55,26 @@ impl App {
                 if let Some(action) = input::shortcut(&event.logical_key, self.modifiers) {
                     // Space activates the focused control, including toggles;
                     // otherwise it remains the viewer's playback shortcut.
-                    if action == Action::Pause && ui.get_control_focused() {
+                    if (ui.get_slider_focused()
+                        && matches!(action, Action::Previous | Action::Next))
+                        || (action == Action::Pause && ui.get_control_focused())
+                    {
                         return false;
                     }
-                    if (ui.get_show_settings() || ui.get_show_info()) && action != Action::Escape {
+                    if (ui.get_show_settings() || ui.get_show_info())
+                        && !matches!(
+                            action,
+                            Action::Escape | Action::Register | Action::DefaultApps
+                        )
+                    {
                         return false;
                     }
-                    if ui.get_show_more() && action != Action::Escape {
+                    if ui.get_show_more()
+                        && !matches!(
+                            action,
+                            Action::Escape | Action::Register | Action::DefaultApps
+                        )
+                    {
                         return false;
                     }
                     if !event.repeat
@@ -107,7 +120,9 @@ impl App {
                         }
                         MouseButton::Left if self.in_canvas() => {
                             ui.invoke_focus_viewer();
-                            self.drag = Some(self.cursor);
+                            if self.video_stamp.is_none() {
+                                self.drag = Some(self.cursor);
+                            }
                         }
                         _ => {}
                     }

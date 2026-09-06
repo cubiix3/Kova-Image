@@ -17,6 +17,11 @@ flowchart LR
     Worker --> Results[Bounded result mailbox]
     Results --> Guard[Generation check]
     Guard --> App
+    Worker --> Admission[Local video admission]
+    Admission --> Results
+    App --> Video[Lazy MF / D3D11 worker]
+    Video --> Frame[One latest-frame slot]
+    Frame --> Guard
     App --> Shell[One Windows STA worker]
     Shell --> Win32[Dialog / clipboard / recycle / Explorer]
 ```
@@ -53,3 +58,23 @@ Windows APIs are wrapped locally; Shell objects live on an STA worker. Each
 launch owns its window and workers. There is no daemon, mutex protocol, IPC,
 network client or single-instance dependency. Shutdown cancels pending work and
 does not block the UI waiting for a non-cooperative decoder to finish.
+
+## Local video
+
+`media` owns mixed-format classification and bounded local container admission.
+`video` owns a coalesced desired-state mailbox and a dedicated MTA worker.
+`video/native` isolates Media Foundation/D3D resources and `video/stream` supplies
+a seekable read-only COM stream over the admitted handle. `app/video` prepares the Slint shared pixel buffer on the worker, applies a
+generation guard on the UI and presents frames without a UI-thread pixel copy. None of these decoder modules imports UI.
+
+Switching files stops old playback. Videos are never preloaded, cached as whole
+frame sequences or started by folder enumeration. Video metadata and frames
+cross one latest-update slot; state-only updates retain the pending frame.
+Image handling keeps the existing decode worker/cache. Native calls are not
+forcibly interrupted; the UI ignores old generations while the worker releases
+old engine resources. A slow native operation can delay the next video request.
+
+Recycling a video sends Stop and waits for its resource-release acknowledgement
+on the Shell worker. The UI remains responsive. Registration writes only the
+application's documented per-user Capabilities/ProgID/OpenWith entries; Windows
+owns default selection. See [FILE_ASSOCIATIONS.md](FILE_ASSOCIATIONS.md).

@@ -5,6 +5,8 @@ impl App {
         if let Some(ui) = self.ui.upgrade() {
             ui.set_autoplay(self.settings.autoplay);
             ui.set_looping(self.settings.looping);
+            ui.set_video_autoplay(self.settings.video_autoplay);
+            ui.set_video_loop(self.settings.video_loop);
             ui.set_natural_sort(self.settings.natural_sort);
             ui.set_auto_hide(self.settings.auto_hide);
             ui.set_wheel_zoom(self.settings.wheel_zoom);
@@ -22,6 +24,13 @@ impl App {
     }
     pub(super) fn setting(&mut self, name: &str, value: bool) {
         match name {
+            "video-autoplay" => self.settings.video_autoplay = value,
+            "video-loop" => {
+                self.settings.video_loop = value;
+                if let Some(p) = &self.video {
+                    p.looping(value);
+                }
+            }
             "autoplay" => self.settings.autoplay = value,
             "looping" => self.settings.looping = value,
             "natural" => self.settings.natural_sort = value,

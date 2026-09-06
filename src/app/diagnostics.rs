@@ -78,6 +78,14 @@ impl App {
                     ui.get_control_focused(), ui.get_fit_active(), ui.get_actual_active(),
                     ui.get_can_previous(), ui.get_can_next(), ui.get_error_title()
                 ));
+                state.push_str(&format!(
+                    "video={}\nvideo_position={}\nvideo_duration={}\nmuted={}\nvolume={}\n",
+                    ui.get_is_video(),
+                    self.video_state.as_ref().map(|s| s.position).unwrap_or(0.),
+                    self.video_state.as_ref().map(|s| s.duration).unwrap_or(0.),
+                    self.muted,
+                    self.volume
+                ));
                 let _ = std::thread::spawn(move || {
                     let path = PathBuf::from(path);
                     let _ =

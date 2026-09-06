@@ -4,7 +4,7 @@
 
 | Resource | Limit |
 | --- | --- |
-| Compressed file | 128 MiB |
+| Compressed image file | 128 MiB |
 | Width or height | 32,768 pixels |
 | Pixel count | 33,554,432 pixels |
 | Decoder allocation allowance | 256 MiB, where the codec honors image-rs Limits |
@@ -28,8 +28,8 @@ These numbers are admission limits, not a measured upper bound on all process RA
 
 ## File and execution boundary
 
-Only compiled-in image-rs format adapters are called; magic bytes choose among
-them. No Shell thumbnail codecs, user plugins, downloaded codecs or browser
+Images use compiled-in image-rs format adapters; magic bytes choose among
+them. Videos use the separate native boundary documented below. No Shell thumbnail codecs, user plugins, downloaded codecs or browser
 rendering are invoked. SVG and other unsupported data are rejected. Slint's
 SVG machinery renders the trusted built-in Kova logo only.
 
@@ -52,7 +52,7 @@ violations or other native faults. No claim of decoder sandboxing is made.
 ## User-triggered Windows actions
 
 Rotation and flip never save. Copy Image uses the original decoded frame.
-Deleting requires a successfully loaded, current image and rechecks metadata.
+Deleting requires a successfully loaded, current media file and rechecks metadata.
 IFileOperation is configured for recycling and a progress sink rejects permanent
 deletion. There is no `remove_file` fallback in product code. Restore a recycled
 file through Windows Recycle Bin. Network drives and unavailable bins may fail.
@@ -72,3 +72,26 @@ GitHub Actions. Workflows have read-only tokens, immutable action references,
 bounded timeouts and no automatic release publishing. Dependabot monitors Cargo
 and Actions. `cargo audit` runs separately and does not suppress advisories.
 Private reporting is documented in the root security policy.
+
+## Native video boundary
+
+Videos are limited to 32 GiB local regular files, 16,777,216 native pixels,
+8,192 pixels per side and seven days of finite duration. Presentation buffers
+are capped at 1920 x 1080. The Media Engine can parse/allocate before reporting
+native dimensions: this is not an OS decoder allocation cap or a sandbox.
+
+A retained read-only file handle denies writes/deletion during playback. The
+engine receives an IStream-backed byte stream and a synthetic container hint,
+never a user-supplied URL. Calling Load after SetSourceFromByteStream is avoided:
+it would start a new URL load instead of retaining the admitted stream.
+
+MP4/MOV box traversal has depth, entry-count and length limits; media payloads
+are skipped by seeking. External data references, reference movies and compressed
+movie headers are rejected. UNC/mapped network video paths and leaf reparse
+points are rejected. Ancestor reparse races remain a limitation, as for images.
+Locally registered Media Foundation plugins are disabled. Windows system codecs
+still parse hostile bytes in process; native faults are not caught by Rust.
+
+One coalesced desired state, one playback worker and one pending UI update bound
+application-level work. Delete awaits engine shutdown on the Shell worker before
+rechecking the file stamp. No protected default-app UserChoice value is changed.

@@ -1,0 +1,53 @@
+import { Theme, Interaction } from "theme.slint";
+
+// Drag previews stay local. Seeking is committed once on release; audio volume
+// uses the same bounded callback. The full 32px row is the pointer target.
+export component Track inherits Rectangle {
+    in property <float> value;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback changed(float);
+    property <float> preview;
+    property <float> shown: touch.pressed ? root.preview : root.value;
+    property <int> focus-id;
+    init => { root.focus-id = Interaction.next-focus-id; Interaction.next-focus-id += 1; }
+    height: Theme.control-height; min-width: 50px;
+    accessible-role: slider;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-value: round(root.value * 100);
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+    accessible-action-increment => { root.changed(min(1, root.value + 0.02)); }
+    accessible-action-decrement => { root.changed(max(0, root.value - 0.02)); }
+    border-radius: Theme.radius;
+    border-width: focus.has-focus && Interaction.keyboard ? 2px : 0px;
+    border-color: Theme.accent;
+    Rectangle {
+        x: 8px; width: parent.width - 16px; height: 4px; y: (parent.height - self.height)/2;
+        border-radius: 2px; background: Theme.stroke;
+        Rectangle { x: 0px; y: 0px; width: parent.width * clamp(root.shown, 0, 1); height: parent.height; border-radius: 2px; background: root.enabled ? Theme.accent : Theme.disabled; }
+        Rectangle { x: clamp(root.shown, 0, 1) * parent.width - 5px; y: -3px; width: 10px; height: 10px; border-radius: 5px; background: root.enabled ? Theme.text : Theme.disabled; }
+    }
+    forward-focus: focus;
+    focus := FocusScope {
+        enabled: root.enabled; focus-on-click: false;
+        focus-gained(reason) => { Interaction.focused-control = root.focus-id; Interaction.slider-focused = true; Interaction.hint = root.label; }
+        focus-lost(reason) => { Interaction.slider-focused = false; if Interaction.focused-control == root.focus-id { Interaction.focused-control = 0; } }
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow { root.changed(max(0, root.value - 0.02)); return accept; }
+            if event.text == Key.RightArrow { root.changed(min(1, root.value + 0.02)); return accept; }
+            reject
+        }
+        touch := TouchArea {
+            enabled: root.enabled;
+            moved => { if self.pressed { root.preview = clamp((self.mouse-x - 8px) / (self.width - 16px), 0, 1); } }
+            pointer-event(event) => {
+                if event.button == PointerEventButton.left {
+                    if event.kind == PointerEventKind.down { focus.focus(); root.preview = clamp((self.mouse-x - 8px) / (self.width - 16px), 0, 1); }
+                    if event.kind == PointerEventKind.up { root.changed(root.preview); }
+                }
+            }
+        }
+    }
+}

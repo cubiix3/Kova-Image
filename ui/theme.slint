@@ -14,15 +14,16 @@ export global Theme {
     out property <color> accent: #86d5f4;
     out property <color> selected: #253e4b;
     out property <color> danger: #f49b9b;
-    out property <length> header-height: 56px;
-    out property <length> bar-height: 72px;
-    out property <length> control-height: 36px;
-    out property <length> radius: 7px;
+    out property <length> header-height: 50px;
+    out property <length> bar-height: 60px;
+    out property <length> control-height: 32px;
+    out property <length> radius: 9px;
 }
 
 // Interaction metadata only. Image state and decoding never enter this global.
 export global Interaction {
     in-out property <string> hint;
+    in-out property <bool> slider-focused;
     in-out property <bool> keyboard: false;
     in-out property <int> next-focus-id: 1;
     in-out property <int> focused-control: 0;

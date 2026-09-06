@@ -13,6 +13,11 @@ use std::{
 };
 
 pub enum Event {
+    Video {
+        id: u64,
+        path: PathBuf,
+        result: Result<crate::media::VideoSource, Error>,
+    },
     Image {
         id: u64,
         path: PathBuf,
@@ -79,17 +84,30 @@ impl Loader {
                         natural,
                     } = request;
                     let start = Instant::now();
-                    let (result, cached) = cached_load(&mut cache, &path, &ticket);
-                    if !ticket.is_current() {
-                        continue;
+                    let video = crate::media::video_extension(&path)
+                        || crate::media::probe(&path).ok().flatten().is_some();
+                    if video {
+                        let result = crate::media::open_video(&path, &ticket);
+                        if ticket.is_current() {
+                            deliver(Event::Video {
+                                id: ticket.id,
+                                path: path.clone(),
+                                result,
+                            });
+                        }
+                    } else {
+                        let (result, cached) = cached_load(&mut cache, &path, &ticket);
+                        if !ticket.is_current() {
+                            continue;
+                        }
+                        deliver(Event::Image {
+                            id: ticket.id,
+                            path: path.clone(),
+                            result,
+                            elapsed: start.elapsed(),
+                            cached,
+                        });
                     }
-                    deliver(Event::Image {
-                        id: ticket.id,
-                        path: path.clone(),
-                        result,
-                        elapsed: start.elapsed(),
-                        cached,
-                    });
                     if scan && ticket.is_current() {
                         let result = folder_navigation::scan(&path, &ticket, natural);
                         if let Ok(files) = &result {
@@ -108,6 +126,9 @@ impl Loader {
                     // Single worker: foreground always wins over queued preloads.
                     // At most the next and previous image are speculated upon.
                     for neighbor in neighbors.into_iter().take(2) {
+                        if crate::media::video_extension(&neighbor) {
+                            continue;
+                        }
                         if !ticket.is_current() {
                             break;
                         }

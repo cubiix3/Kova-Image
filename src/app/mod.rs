@@ -49,6 +49,8 @@ struct ShellJob {
     path: Option<PathBuf>,
     image: Option<Arc<Decoded>>,
     frame: usize,
+    stamp: Option<kova_image::decoder::Stamp>,
+    stopped: Option<mpsc::Receiver<()>>,
     settings: Option<Settings>,
 }
 enum ShellResult {
@@ -66,9 +68,18 @@ struct App {
     displayed: Option<PathBuf>,
     id: u64,
     image: Option<Arc<Decoded>>,
+    video: Option<kova_image::video::Player>,
+    video_state: Option<kova_image::video::VideoState>,
+    video_stamp: Option<kova_image::decoder::Stamp>,
+    video_kind: Option<kova_image::media::VideoKind>,
+    video_delete: Option<PathBuf>,
+    volume: f64,
+    muted: bool,
     nav: Navigation,
     view: View,
     settings: Settings,
+    settings_ready: bool,
+    pending_video: Option<(PathBuf, kova_image::media::VideoSource)>,
     playback: Playback,
     paused: bool,
     hidden: bool,
@@ -92,7 +103,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut software = false;
     let mut measure = None;
     while let Some(arg) = args.next() {
-        if arg == "--software" {
+        if arg == "--register-file-associations" {
+            native::register_associations()?;
+            return Ok(());
+        } else if arg == "--software" {
             software = true;
         } else if arg == "--measure" {
             measure = Some(PathBuf::from(
@@ -104,7 +118,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         } else if path.is_none() {
             path = Some(PathBuf::from(arg));
         } else {
-            return Err("Expected one image path".into());
+            return Err("Expected one media path".into());
         }
     }
     // No directory scan, codec initialization, or database before window creation.
@@ -138,9 +152,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             let _ = slint::invoke_from_event_loop(move || {
                 with_app(|app| {
                     app.settings = settings;
+                    app.settings_ready = true;
                     app.view.reset(app.settings.fit);
                     app.sync_settings();
                     app.update_view();
+                    if let Some((path, source)) = app.pending_video.take() {
+                        app.start_video(path, source);
+                    }
                 })
             });
             let apartment = native::Apartment::new();
@@ -165,9 +183,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         displayed: None,
         id: 0,
         image: None,
+        video: None,
+        video_state: None,
+        video_stamp: None,
+        video_kind: None,
+        video_delete: None,
+        volume: 0.7,
+        muted: cfg!(debug_assertions) && std::env::var_os("KOVA_TEST_MUTE").is_some(),
         nav: Navigation::default(),
         view,
         settings,
+        settings_ready: false,
+        pending_video: None,
         playback: Playback::default(),
         paused: false,
         hidden: false,
@@ -189,6 +216,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             with_app(|app| app.action(action));
         }
     });
+    ui.on_seek(|fraction| with_app(|app| app.seek_video(f64::from(fraction), true)));
+    ui.on_volume_change(|volume| with_app(|app| app.audio_video(f64::from(volume), false)));
     ui.on_setting(|name, value| with_app(|app| app.setting(&name, value)));
     let weak = ui.as_weak();
     ui.on_drag_window(move || {
@@ -224,6 +253,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     app.borrow_mut().render_notifications = notifications;
     app.borrow().sync_settings();
     ui.show()?;
+    ui.window().with_winit_window(|w| {
+        if let Ok(h) = w.window_handle()
+            && let RawWindowHandle::Win32(h) = h.as_raw()
+        {
+            native::round_window(h.hwnd.get());
+        }
+    });
     if let Some(path) = path {
         app.borrow_mut().open(path, true);
     }
@@ -238,6 +274,7 @@ mod events;
 mod preferences;
 mod presentation;
 mod shell;
+mod video;
 use shell::shell_job;
 
 impl App {
@@ -272,6 +309,16 @@ impl App {
             }
         };
         self.animation.stop();
+        self.pending_video = None;
+        if let Some(player) = &self.video {
+            player.stop();
+        }
+        self.video_state = None;
+        self.video_stamp = None;
+        self.video_kind = None;
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_is_video(false);
+        }
         self.playback = Playback::default();
         self.paused = !self.settings.autoplay;
         self.requested = Some(path.clone());
@@ -290,6 +337,10 @@ impl App {
     }
     fn event(&mut self, event: Event) {
         match event {
+            Event::Video { id, path, result } if id == self.id => match result {
+                Ok(source) => self.start_video(path, source),
+                Err(error) => self.media_error(path, error),
+            },
             Event::Image {
                 id,
                 path,

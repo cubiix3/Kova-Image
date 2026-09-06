@@ -1,6 +1,7 @@
 import { Palette, ScrollView } from "std-widgets.slint";
 import { Theme, Interaction } from "theme.slint";
 import { Tool, Rule, Divider, Group, ToggleRow } from "controls.slint";
+import { Track } from "track.slint";
 import { Icons } from "icons.slint";
 
 export struct InfoField { label: string, value: string }
@@ -17,6 +18,16 @@ export component ViewerWindow inherits Window {
     in property <image> picture;
     in property <bool> has-image: false;
     in property <bool> loading: false;
+    in property <bool> is-video;
+    in property <float> video-progress;
+    in property <string> time-label: "0:00 / 0:00";
+    in property <float> volume: 0.7;
+    in property <bool> muted;
+    in-out property <bool> video-autoplay: true;
+    in-out property <bool> video-loop: false;
+    out property <bool> slider-focused: Interaction.slider-focused;
+    callback seek(float);
+    callback volume-change(float);
     in property <string> filename: "Kova Image";
     in property <string> status;
     in property <[InfoField]> info-fields;
@@ -64,23 +75,25 @@ export component ViewerWindow inherits Window {
     public function focus-viewer() {
         canvas-focus.focus();
         Interaction.focused-control = 0;
+        Interaction.slider-focused = false;
         Interaction.hint = "";
     }
     out property <bool> chrome-hovered: header-touch.has-hover || bar-touch.has-hover;
     out property <float> chrome-top: Theme.header-height / 1px;
-    out property <float> chrome-bottom: Theme.bar-height / 1px + (root.fullscreen ? 12 : 0);
+    out property <float> chrome-bottom: root.bar-height / 1px + (root.fullscreen ? 12 : 0);
+    property <length> bar-height: Theme.bar-height;
     property <bool> modal: root.show-info || root.show-settings;
     changed modal => { if !root.modal { root.focus-viewer(); } }
     changed show-more => { if !root.show-more && !root.modal { root.focus-viewer(); } }
     property <bool> tools-enabled: root.chrome && !root.modal && !root.show-more;
-    property <bool> image-tools: root.tools-enabled && root.has-image && !root.loading;
+    property <bool> image-tools: root.tools-enabled && root.has-image && !root.loading && !root.is-video;
     property <bool> compact: root.width < 820px;
 
     canvas := Rectangle {
-        x: root.fullscreen ? 0px : 16px;
-        y: root.fullscreen ? 0px : Theme.header-height + 16px;
-        height: root.height - (root.fullscreen ? 0px : Theme.header-height + Theme.bar-height + 32px);
-        width: root.width - (root.fullscreen ? 0px : 32px);
+        x: root.fullscreen ? 0px : 12px;
+        y: root.fullscreen ? 0px : Theme.header-height + 12px;
+        height: root.height - (root.fullscreen ? 0px : Theme.header-height + root.bar-height + 24px);
+        width: root.width - (root.fullscreen ? 0px : 24px);
         background: root.light-background && root.has-image ? #cfd3d8 : Theme.canvas;
         clip: true;
         canvas-focus := FocusScope {
@@ -98,14 +111,19 @@ export component ViewerWindow inherits Window {
             transform-rotation: root.rotation * 1deg;
             transform-scale-x: root.flip-h ? -100% : 100%;
             transform-scale-y: root.flip-v ? -100% : 100%;
-            image-rendering: root.pixelated ? ImageRendering.pixelated : ImageRendering.smooth;
+            image-rendering: root.pixelated && !root.is-video ? ImageRendering.pixelated : ImageRendering.smooth;
             accessible-label: root.filename;
         }
+        TouchArea {
+            enabled: !root.modal && !root.show-more && root.has-image;
+            double-clicked => { root.command("fullscreen"); }
+        }
         if !root.has-image: Rectangle {
-            width: min(460px, parent.width - 32px); height: min(262px, parent.height);
+            width: min(440px, parent.width - 24px); height: min(248px, parent.height);
             x: (parent.width - self.width)/2; y: (parent.height - self.height)/2;
+            border-radius: 18px; background: Theme.surface;
             VerticalLayout {
-                spacing: 12px; alignment: center;
+                padding: 20px; spacing: 10px; alignment: center;
                 Rectangle {
                     height: 52px;
                     Rectangle {
@@ -114,13 +132,13 @@ export component ViewerWindow inherits Window {
                         Image { source: root.error-title != "" ? Icons.error : Icons.image; colorize: root.error-title != "" ? Theme.danger : Theme.accent; width: 24px; height: 24px; x: 12px; y: 12px; }
                     }
                 }
-                Text { text: root.loading ? "Opening image" : root.error-title != "" ? root.error-title : "Open an image"; color: Theme.text; font-size: 22px; font-weight: 600; horizontal-alignment: center; wrap: word-wrap; }
-                Text { text: root.loading ? "Your image will appear here." : root.error-title != "" ? root.error-detail : "Drop a file here, or open an image to get started."; color: Theme.secondary; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; overflow: elide; max-height: 64px; }
+                Text { text: root.loading ? "Opening media" : root.error-title != "" ? root.error-title : "Open a local file"; color: Theme.text; font-size: 20px; font-weight: 600; horizontal-alignment: center; wrap: word-wrap; }
+                Text { text: root.loading ? "Your file will appear here." : root.error-title != "" ? root.error-detail : "Images, animations and videos. Simply drop a file here."; color: Theme.secondary; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; overflow: elide; max-height: 64px; }
                 if !root.loading: HorizontalLayout {
                     alignment: center; padding-top: 8px;
-                    Tool { label: root.error-title != "" ? "Open another image" : "Open image"; icon: Icons.open; has-icon: true; primary: true; enabled: root.tools-enabled; hint: "Open image  ·  Ctrl+O"; clicked => { root.command("open"); } }
+                    Tool { label: root.error-title != "" ? "Open another file" : "Open file"; icon: Icons.open; has-icon: true; primary: true; enabled: root.tools-enabled; hint: "Open file  ·  Ctrl+O"; clicked => { root.command("open"); } }
                 }
-                if !root.loading: Text { text: root.error-title != "" ? "You can still navigate to the next image." : "JPG, PNG, WebP, GIF and more  ·  Ctrl+O"; color: Theme.muted; font-size: 12px; horizontal-alignment: center; }
+                if !root.loading: Text { text: root.error-title != "" ? "You can still navigate to the next file." : "JPG, PNG, GIF, MP4 and more  ·  Ctrl+O"; color: Theme.muted; font-size: 12px; horizontal-alignment: center; }
             }
         }
     }
@@ -141,19 +159,19 @@ export component ViewerWindow inherits Window {
         }
         Rule { y: parent.height - 1px; }
         HorizontalLayout {
-            padding-left: 18px; spacing: 0px;
+            padding-left: 14px; spacing: 0px;
             HorizontalLayout {
-                width: root.compact ? 132px : 154px; spacing: 10px; alignment: start;
-                Rectangle { width: 28px; Image { source: @image-url("../assets/kova.svg"); width: 28px; height: 28px; y: (parent.height - self.height)/2; } }
+                width: root.compact ? 124px : 142px; spacing: 8px; alignment: start;
+                Rectangle { width: 24px; Image { source: @image-url("../assets/kova.svg"); width: 24px; height: 24px; y: (parent.height - self.height)/2; } }
                 Text { text: "Kova Image"; color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; }
             }
             Divider { }
             VerticalLayout {
-                padding-left: 18px; padding-right: 14px; alignment: center; spacing: 2px; horizontal-stretch: 1;
-                Text { text: root.filename == "Kova Image" ? "Image viewer" : root.filename; color: root.has-image ? Theme.text : Theme.secondary; font-size: 13px; overflow: elide; }
-                Text { text: root.loading ? "Opening image…" : root.error-title != "" ? root.error-title : root.image-detail != "" ? root.image-detail : "Local files. Nothing else."; color: Theme.muted; font-size: 11px; overflow: elide; }
+                padding-left: 14px; padding-right: 12px; alignment: center; spacing: 2px; horizontal-stretch: 1;
+                Text { text: root.filename == "Kova Image" ? "Local media viewer" : root.filename; color: root.has-image ? Theme.text : Theme.secondary; font-size: 13px; overflow: elide; }
+                Text { text: root.loading ? "Opening media…" : root.error-title != "" ? root.error-title : root.image-detail != "" ? root.image-detail : "Local files. Nothing else."; color: Theme.muted; font-size: 11px; overflow: elide; }
             }
-            VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { label: root.compact ? "" : "Open"; icon: Icons.open; has-icon: true; filled: true; hint: "Open image  ·  Ctrl+O"; enabled: root.tools-enabled; clicked => { root.command("open"); } } }
+            VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { label: root.compact ? "" : "Open"; icon: Icons.open; has-icon: true; filled: true; hint: "Open file  ·  Ctrl+O"; enabled: root.tools-enabled; clicked => { root.command("open"); } } }
             Rectangle { width: 12px; }
             Tool { icon: Icons.minimize; has-icon: true; hint: "Minimize"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; enabled: root.tools-enabled; clicked => { root.command("minimize"); } }
             Tool { icon: Icons.maximize; has-icon: true; hint: "Maximize / restore"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; enabled: root.tools-enabled; clicked => { root.command("maximize"); } }
@@ -165,36 +183,44 @@ export component ViewerWindow inherits Window {
         cache-rendering-hint: root.animated;
         x: root.fullscreen ? max(12px, (root.width - 1000px)/2) : 0px;
         width: root.fullscreen ? min(1000px, root.width - 24px) : root.width;
-        y: root.height - Theme.bar-height - (root.fullscreen ? 12px : 0px);
-        height: Theme.bar-height; border-radius: root.fullscreen ? 12px : 0px;
+        y: root.height - root.bar-height - (root.fullscreen ? 12px : 0px);
+        height: root.bar-height; border-radius: root.fullscreen ? 16px : 0px;
         background: Theme.surface; opacity: root.chrome ? 1 : 0; visible: self.opacity > 0;
         animate opacity { duration: 120ms; }
         bar-touch := TouchArea { enabled: root.tools-enabled; }
         if !root.fullscreen: Rule { }
         HorizontalLayout {
-            padding: 16px; spacing: root.compact ? 6px : 12px;
+            padding: 12px; spacing: root.compact ? 6px : 10px;
             Group {
                 horizontal-stretch: 0;
-                Tool { icon: Icons.previous; has-icon: true; hint: "Previous image  ·  Left"; enabled: root.tools-enabled && root.can-previous; clicked => { root.command("previous"); } }
+                Tool { icon: Icons.previous; has-icon: true; hint: "Previous file  ·  Left"; enabled: root.tools-enabled && root.can-previous; clicked => { root.command("previous"); } }
                 Text { text: root.position-label == "" ? "—" : root.position-label; color: Theme.secondary; font-size: 12px; width: root.compact ? 44px : 56px; overflow: elide; horizontal-alignment: center; vertical-alignment: center; }
-                Tool { icon: Icons.next; has-icon: true; hint: "Next image  ·  Right"; enabled: root.tools-enabled && root.can-next; clicked => { root.command("next"); } }
+                Tool { icon: Icons.next; has-icon: true; hint: "Next file  ·  Right"; enabled: root.tools-enabled && root.can-next; clicked => { root.command("next"); } }
             }
-            Rectangle { horizontal-stretch: 1; }
-            Group {
+            if !root.is-video: Rectangle { horizontal-stretch: 1; }
+            if !root.is-video: Group {
                 horizontal-stretch: 0;
                 Tool { icon: Icons.minus; has-icon: true; hint: "Zoom out  ·  -"; enabled: root.image-tools; clicked => { root.command("out"); } }
                 Tool { label: root.has-image ? root.zoom-label : "—"; width: 60px; hint: "Zoom · Reset to actual size"; enabled: root.image-tools; clicked => { root.command("actual"); } }
                 Tool { icon: Icons.plus; has-icon: true; hint: "Zoom in  ·  +"; enabled: root.image-tools; clicked => { root.command("in"); } }
             }
-            Group {
+            if !root.is-video: Group {
                 horizontal-stretch: 0;
                 Tool { label: "Fit"; checkable: true; active: root.fit-active && root.has-image; hint: "Fit to window  ·  0"; enabled: root.image-tools; clicked => { root.command("fit"); } }
                 Tool { label: "100%"; checkable: true; active: root.actual-active && root.has-image; hint: "Actual size  ·  1"; enabled: root.image-tools; clicked => { root.command("actual"); } }
             }
-            Divider { }
-            VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: Icons.rotate; has-icon: true; hint: "Rotate right  ·  R"; enabled: root.image-tools; clicked => { root.command("right"); } } }
-            if root.animated: VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: root.paused ? Icons.play : Icons.pause; has-icon: true; checkable: true; active: !root.paused; hint: root.paused ? "Play animation  ·  Space" : "Pause animation  ·  Space"; enabled: root.image-tools; clicked => { root.command("pause"); } } }
-            Rectangle { horizontal-stretch: 1; }
+            if !root.is-video: Divider { }
+            if !root.is-video: VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: Icons.rotate; has-icon: true; hint: "Rotate right  ·  R"; enabled: root.image-tools; clicked => { root.command("right"); } } }
+            if root.animated && !root.is-video: VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: root.paused ? Icons.play : Icons.pause; has-icon: true; checkable: true; active: !root.paused; hint: root.paused ? "Play animation  ·  Space" : "Pause animation  ·  Space"; enabled: root.image-tools; clicked => { root.command("pause"); } } }
+            if root.is-video: Group {
+                horizontal-stretch: 1;
+                Tool { icon: root.paused ? Icons.play : Icons.pause; has-icon: true; hint: root.paused ? "Play video  /  Space" : "Pause video  /  Space"; enabled: root.tools-enabled && root.has-image; clicked => { root.command("pause"); } }
+                Track { value: root.video-progress; label: "Seek video / Ctrl+Left or Ctrl+Right: 5 seconds"; enabled: root.tools-enabled && root.has-image; changed(value) => { root.seek(value); } }
+                Text { text: root.time-label; color: Theme.secondary; font-size: 12px; width: root.compact ? 84px : 106px; horizontal-alignment: center; vertical-alignment: center; }
+                Tool { icon: root.muted || root.volume == 0 ? Icons.mute : Icons.volume; has-icon: true; hint: "Mute / unmute  /  M"; active: root.muted; checkable: true; enabled: root.tools-enabled; clicked => { root.command("mute"); } }
+                Track { value: root.volume; label: "Volume"; width: root.compact ? 58px : 80px; horizontal-stretch: 0; enabled: root.tools-enabled; changed(value) => { root.volume-change(value); } }
+            }
+            if !root.is-video: Rectangle { horizontal-stretch: 1; }
             VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: root.fullscreen ? Icons.exit-fullscreen : Icons.fullscreen; has-icon: true; hint: root.fullscreen ? "Leave fullscreen  ·  Esc" : "Fullscreen  ·  F11"; checkable: true; active: root.fullscreen; enabled: root.tools-enabled; clicked => { root.command("fullscreen"); } } }
             VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: Icons.more; has-icon: true; hint: "More actions"; active: root.show-more; enabled: root.chrome && !root.modal; clicked => { root.show-more = !root.show-more; } } }
         }
@@ -202,22 +228,22 @@ export component ViewerWindow inherits Window {
 
     if root.chrome && !root.show-more && !root.modal && Interaction.hint != "": Rectangle {
         x: (root.width - self.width)/2; y: bar.y - 36px; height: 28px;
-        width: hint-text.preferred-width + 22px; border-radius: 5px; background: Theme.raised; border-width: 1px; border-color: Theme.stroke;
+        width: hint-text.preferred-width + 22px; border-radius: 9px; background: Theme.raised; border-width: 1px; border-color: Theme.stroke;
         hint-text := Text { text: Interaction.hint; color: Theme.secondary; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
     }
     if root.status != "" && (root.has-image || root.error-title == "") && !root.modal: Rectangle {
         x: 18px; y: bar.y - 42px; height: 30px;
         width: min(parent.width - 36px, notice.preferred-width + 28px);
-        border-radius: 6px; background: Theme.raised; border-width: 1px; border-color: Theme.stroke;
+        border-radius: 9px; background: Theme.raised; border-width: 1px; border-color: Theme.stroke;
         notice := Text { x: 14px; width: parent.width - 28px; text: root.status; color: Theme.secondary; vertical-alignment: center; overflow: elide; font-size: 12px; }
     }
 
     if root.show-more: Rectangle {
         TouchArea { clicked => { root.show-more = false; Interaction.hint = ""; } }
         Rectangle {
-            width: 306px; height: min(516px, root.height - Theme.header-height - Theme.bar-height - 16px);
+            width: 306px; height: min(452px, root.height - Theme.header-height - root.bar-height - 16px);
             x: bar.x + bar.width - self.width - 12px; y: bar.y - self.height - 8px;
-            border-radius: 10px; background: Theme.surface; border-width: 1px; border-color: Theme.stroke;
+            border-radius: 14px; background: Theme.surface; border-width: 1px; border-color: Theme.stroke;
             TouchArea { }
             VerticalLayout {
                 padding: 8px; spacing: 4px;
@@ -225,18 +251,18 @@ export component ViewerWindow inherits Window {
                     viewport-width: self.width; horizontal-scrollbar-policy: always-off;
                     VerticalLayout { spacing: 2px;
                         Text { text: "VIEW"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; vertical-alignment: center; x: 12px; }
-                        Tool { menu: true; label: "Fit width"; icon: Icons.width; has-icon: true; shortcut: "W"; enabled: root.has-image && !root.loading; clicked => { root.command("width"); root.show-more=false; } }
-                        Tool { menu: true; label: "Rotate left"; icon: Icons.rotate; has-icon: true; shortcut: "Shift+R"; enabled: root.has-image && !root.loading; clicked => { root.command("left"); root.show-more=false; } }
-                        Tool { menu: true; label: "Flip horizontal"; icon: Icons.flip-h; has-icon: true; shortcut: "H"; enabled: root.has-image && !root.loading; clicked => { root.command("horizontal"); root.show-more=false; } }
-                        Tool { menu: true; label: "Flip vertical"; icon: Icons.flip-v; has-icon: true; shortcut: "V"; enabled: root.has-image && !root.loading; clicked => { root.command("vertical"); root.show-more=false; } }
+                        Tool { menu: true; label: "Fit width"; icon: Icons.width; has-icon: true; shortcut: "W"; enabled: root.has-image && !root.loading && !root.is-video; clicked => { root.command("width"); root.show-more=false; } }
+                        Tool { menu: true; label: "Rotate left"; icon: Icons.rotate; has-icon: true; shortcut: "Shift+R"; enabled: root.has-image && !root.loading && !root.is-video; clicked => { root.command("left"); root.show-more=false; } }
+                        Tool { menu: true; label: "Flip horizontal"; icon: Icons.flip-h; has-icon: true; shortcut: "H"; enabled: root.has-image && !root.loading && !root.is-video; clicked => { root.command("horizontal"); root.show-more=false; } }
+                        Tool { menu: true; label: "Flip vertical"; icon: Icons.flip-v; has-icon: true; shortcut: "V"; enabled: root.has-image && !root.loading && !root.is-video; clicked => { root.command("vertical"); root.show-more=false; } }
                         Rule { }
-                        Tool { menu: true; label: "Copy image"; icon: Icons.copy; has-icon: true; shortcut: "Ctrl+C"; enabled: root.has-image && !root.loading; clicked => { root.command("copy"); root.show-more=false; } }
+                        Tool { menu: true; label: root.is-video ? "Copy path" : "Copy image"; icon: Icons.copy; has-icon: true; shortcut: "Ctrl+C"; enabled: root.has-image && !root.loading; clicked => { root.command("copy"); root.show-more=false; } }
                         Tool { menu: true; label: "Copy path"; icon: Icons.path; has-icon: true; shortcut: "Ctrl+Shift+C"; enabled: root.has-image && !root.loading; clicked => { root.command("path"); root.show-more=false; } }
                         Tool { menu: true; label: "Show in Explorer"; icon: Icons.folder; has-icon: true; enabled: root.has-image && !root.loading; clicked => { root.command("reveal"); root.show-more=false; } }
                         Tool { menu: true; label: "Open with…"; icon: Icons.open; has-icon: true; enabled: root.has-image && !root.loading; clicked => { root.command("open-with"); root.show-more=false; } }
                         Tool { menu: true; label: "Move to Recycle Bin"; icon: Icons.delete; has-icon: true; shortcut: "Del"; danger: true; enabled: root.has-image && !root.loading; clicked => { root.command("delete"); root.show-more=false; } }
                         Rule { }
-                        Tool { menu: true; label: "Image information"; icon: Icons.info; has-icon: true; shortcut: "I"; enabled: root.has-image; clicked => { root.command("info"); root.show-more=false; } }
+                        Tool { menu: true; label: "File information"; icon: Icons.info; has-icon: true; shortcut: "I"; enabled: root.has-image; clicked => { root.command("info"); root.show-more=false; } }
                         Tool { menu: true; label: "Settings"; icon: Icons.settings; has-icon: true; clicked => { root.command("settings"); root.show-more=false; } }
                     }
                 }
@@ -252,44 +278,54 @@ export component ViewerWindow inherits Window {
         Rectangle {
             width: min(492px, parent.width - 40px); height: min(root.show-settings ? 544px : 410px, parent.height - 32px);
             x: (parent.width - self.width)/2; y: (parent.height - self.height)/2;
-            border-radius: 12px; background: Theme.surface; border-width: 1px; border-color: Theme.stroke;
+            border-radius: 16px; background: Theme.surface; border-width: 1px; border-color: Theme.stroke;
             TouchArea { }
             VerticalLayout {
                 padding: 20px; spacing: 14px;
                 HorizontalLayout {
                     height: 36px; spacing: 12px;
                     Rectangle { width: 20px; Image { source: root.show-settings ? Icons.settings : Icons.info; colorize: Theme.accent; width: 20px; height: 20px; y: (parent.height - self.height)/2; } }
-                    Text { text: root.show-settings ? "Settings" : "Image information"; color: Theme.text; font-size: 18px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                    Text { text: root.show-settings ? "Settings" : "File information"; color: Theme.text; font-size: 18px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
                     Tool { icon: Icons.close; has-icon: true; hint: "Close panel  ·  Esc"; clicked => { root.show-info=false; root.show-settings=false; } }
                 }
                 Rule { }
                 ScrollView {
                     viewport-width: self.width; horizontal-scrollbar-policy: always-off;
-                    if root.show-info: VerticalLayout {
-                        spacing: 14px;
-                        for field in root.info-fields: HorizontalLayout {
-                            spacing: 16px;
-                            Text { text: field.label; color: Theme.muted; font-size: 12px; width: 80px; }
-                            Text { text: field.value; color: Theme.text; font-size: 13px; wrap: word-wrap; horizontal-stretch: 1; }
+                    // One unconditional layout lets ScrollView measure both panel contents.
+                    VerticalLayout {
+                        if root.show-info: VerticalLayout {
+                            spacing: 14px;
+                            for field in root.info-fields: HorizontalLayout {
+                                spacing: 16px;
+                                Text { text: field.label; color: Theme.muted; font-size: 12px; width: 80px; }
+                                Text { text: field.value; color: Theme.text; font-size: 13px; wrap: word-wrap; horizontal-stretch: 1; }
+                            }
                         }
-                    }
-                    if root.show-settings: VerticalLayout {
-                        spacing: 4px;
-                        Text { text: "PLAYBACK & NAVIGATION"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
-                        ToggleRow { label: "Autoplay animations"; checked <=> root.autoplay; toggled(value) => { root.setting("autoplay",value); } }
-                        ToggleRow { label: "Honor animation loop count"; checked <=> root.looping; toggled(value) => { root.setting("looping",value); } }
-                        ToggleRow { label: "Natural filename sorting"; checked <=> root.natural-sort; toggled(value) => { root.setting("natural",value); } }
-                        ToggleRow { label: "Auto-hide controls in fullscreen"; checked <=> root.auto-hide; toggled(value) => { root.setting("hide",value); } }
-                        ToggleRow { label: "Mouse wheel zooms (off: navigate)"; checked <=> root.wheel-zoom; toggled(value) => { root.setting("wheel",value); } }
-                        Rule { }
-                        Text { text: "APPEARANCE"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
-                        ToggleRow { label: "Sharp pixels at high zoom"; checked <=> root.pixelated; toggled(value) => { root.setting("pixels",value); } }
-                        ToggleRow { label: "Light image background"; checked: root.light-background; toggled(value) => { root.setting("background",value); } }
-                        HorizontalLayout { spacing: 6px;
-                            Text { text: "Default fit"; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
-                            Tool { label: "Window"; checkable: true; active: root.default-fit == "window"; clicked => { root.setting("fit-window",true); } }
-                            Tool { label: "Width"; checkable: true; active: root.default-fit == "width"; clicked => { root.setting("fit-width",true); } }
-                            Tool { label: "100%"; checkable: true; active: root.default-fit == "actual"; clicked => { root.setting("fit-actual",true); } }
+                        if root.show-settings: VerticalLayout {
+                            spacing: 4px;
+                            Text { text: "PLAYBACK & NAVIGATION"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
+                            ToggleRow { label: "Autoplay animations"; checked <=> root.autoplay; toggled(value) => { root.setting("autoplay",value); } }
+                            ToggleRow { label: "Honor animation loop count"; checked <=> root.looping; toggled(value) => { root.setting("looping",value); } }
+                            ToggleRow { label: "Autoplay videos"; checked <=> root.video-autoplay; toggled(value) => { root.setting("video-autoplay",value); } }
+                            ToggleRow { label: "Loop videos"; checked <=> root.video-loop; toggled(value) => { root.setting("video-loop",value); } }
+                            ToggleRow { label: "Natural filename sorting"; checked <=> root.natural-sort; toggled(value) => { root.setting("natural",value); } }
+                            ToggleRow { label: "Auto-hide controls in fullscreen"; checked <=> root.auto-hide; toggled(value) => { root.setting("hide",value); } }
+                            ToggleRow { label: "Mouse wheel zooms (off: navigate)"; checked <=> root.wheel-zoom; toggled(value) => { root.setting("wheel",value); } }
+                            Rule { }
+                            Text { text: "APPEARANCE"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
+                            ToggleRow { label: "Sharp pixels at high zoom"; checked <=> root.pixelated; toggled(value) => { root.setting("pixels",value); } }
+                            ToggleRow { label: "Light image background"; checked: root.light-background; toggled(value) => { root.setting("background",value); } }
+                            HorizontalLayout { spacing: 6px;
+                                Text { text: "Default fit"; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
+                                Tool { label: "Window"; checkable: true; active: root.default-fit == "window"; clicked => { root.setting("fit-window",true); } }
+                                Tool { label: "Width"; checkable: true; active: root.default-fit == "width"; clicked => { root.setting("fit-width",true); } }
+                                Tool { label: "100%"; checkable: true; active: root.default-fit == "actual"; clicked => { root.setting("fit-actual",true); } }
+                            }
+                            Rule { }
+                            Text { text: "WINDOWS INTEGRATION"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
+                            Text { text: "Images: JPG, PNG, GIF, WebP, BMP, TIFF, APNG, ICO\nVideos: MP4, MOV, WebM, MKV (Windows codecs)"; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
+                            Tool { menu: true; filled: true; label: "Register Kova Image for Open with"; clicked => { root.command("register"); } }
+                            Tool { menu: true; label: "Choose default viewer in Windows Settings"; clicked => { root.command("defaults"); } }
                         }
                     }
                 }

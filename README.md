@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Kova Image</h1>
-<p align="center">A fast, lightweight and secure image viewer for Windows.</p>
+<p align="center">A fast, lightweight local image and video viewer for Windows.</p>
 
 <p align="center">
   <a href="https://github.com/cubiix3/Kova-Image/actions/workflows/ci.yml"><img src="https://github.com/cubiix3/Kova-Image/actions/workflows/ci.yml/badge.svg" alt="Windows CI"></a>
@@ -18,8 +18,8 @@
 
 ## What is Kova Image?
 
-A standalone, native Windows image and animation viewer in the Kova product
-family. Built with **Rust, Slint and official Windows APIs**. Open an image,
+A standalone, native Windows image, animation and local video viewer in the Kova product
+family. Built with **Rust, Slint and official Windows APIs**. Open a file,
 see it, and move through its folder. Kova Image is a viewer, not an editor.
 
 ![Kova Image running with an original generated test image](docs/images/viewer.png)
@@ -34,7 +34,7 @@ see it, and move through its folder. Kova Image is a viewer, not an editor.
 ## Current status
 
 Windows 10/11 x64 is the target. The 0.1.0 source provides the viewer workflow,
-animation, folder navigation and Windows actions below. This is a first
+animation, native video, mixed-media folder navigation and Windows actions below. This is a first
 implementation, with no stability or performance guarantees. Hardware diversity,
 color management, accessibility and hostile-file coverage need more validation.
 
@@ -45,10 +45,12 @@ color management, accessibility and hostile-file coverage need more validation.
 - Fit, fit width, 100%, cursor-centered wheel zoom and drag to pan.
 - Fullscreen with auto-hiding controls; rotation and horizontal/vertical flips.
 - GIF, animated WebP and APNG playback with pause and bounded frame storage.
+- Local video with play/pause, timeline seeking, time, volume/mute and optional loop.
 - Copy the original decoded image/current animation frame or Unicode path.
 - Move a loaded file to the Windows Recycle Bin, reveal it in Explorer, or
   open the native **Open with** dialog.
 - Small information and settings panels, local settings and sharp-pixel mode.
+- Opt-in **Open with** registration and a link to Windows Default Apps Settings.
 - Asynchronous decoding, latest-request priority, stale-result rejection and
   next/previous preloading through a bounded, weighted LRU cache.
 
@@ -68,12 +70,17 @@ an independent window; there is no single-instance IPC service.
 | BMP | Still image |
 | TIFF | First image/page |
 | ICO | Decoder-selected icon image |
+| MP4 / M4V, MOV, MKV | Windows Media Foundation; tested with H.264 + AAC |
+| WebM | Windows codec dependent; VP8/VP9 samples fail gracefully on the test machine without a matching decoder |
 | AVIF | Planned; no decoder shipped yet |
 | HEIC/HEIF, JPEG XL, SVG, RAW | Not supported; evaluation remains on the roadmap |
 
 File contents determine the decoder. Extensions are used only to filter folder
 navigation and the file picker. An explicitly opened supported image can have
-an unusual extension. SVG and external resources are never rendered.
+an unusual extension. Video containers require a recognized header and a local
+drive path. Container support does not guarantee every codec/profile will play.
+No codec downloads, streaming, DRM, subtitles or audio-only player are provided.
+See [video architecture and limits](docs/VIDEO.md). SVG is never rendered.
 
 ## Installation / Running
 
@@ -87,7 +94,14 @@ There is no published installer or stable binary. After building:
 
 `--software` selects the rendering fallback. The default uses OpenGL through
 Slint's FemtoVG renderer. Keep any packaged runtime DLLs alongside the executable.
-See [Windows builds and packaging](docs/WINDOWS_RELEASE.md).
+See [Windows builds and packaging](docs/WINDOWS_RELEASE.md). Video also requires
+the Windows Media Foundation components (Windows N installations may lack them).
+
+To enable **Open with**, keep the executable in a permanent folder, then use
+Settings > **Register Kova Image for Open with**, followed by **Choose default
+viewer in Windows Settings**. Or run `kova-image.exe --register-file-associations`.
+Registration is per-user, needs no elevation and never changes protected
+`UserChoice` defaults. [Registration details](docs/FILE_ASSOCIATIONS.md).
 
 ## Building from source
 
@@ -117,19 +131,25 @@ distinguish build tooling from shipped code.
 
 | Action | Control |
 | --- | --- |
-| Open image | `Ctrl+O` or drop a file |
+| Open image / video | `Ctrl+O` or drop a file |
 | Previous / next | `Left` / `Right`, mouse Back / Forward |
 | First / last | `Home` / `End` |
 | Zoom in / out | `+` / `-`, mouse wheel |
 | Fit / fit width / 100% | `0` / `W` / `1` |
 | Pan | Drag the image with the left mouse button |
-| Fullscreen / exit fullscreen | `F11` / `Esc` |
-| Pause / resume animation | `Space` |
+| Fullscreen / exit fullscreen | `F11` / `Esc`; double-click the canvas to toggle |
+| Pause / resume animation or video | `Space` |
+| Seek video by 5 seconds | `Ctrl+Left` / `Ctrl+Right` |
+| Mute / unmute video | `M` |
 | Rotate right / left | `R` / `Shift+R` |
 | Flip horizontal / vertical | `H` / `V` |
-| Image information | `I` |
-| Copy image / path | `Ctrl+C` / `Ctrl+Shift+C` |
+| File information | `I` |
+| Copy image / path (video: both copy path) | `Ctrl+C` / `Ctrl+Shift+C` |
 | Move to Recycle Bin | `Delete` |
+
+Image zoom, rotation and flip tools apply only to images. Video uses Fit to
+Window. Timeline and volume accept pointer dragging; focused sliders use arrow
+keys. Left/Right otherwise navigate the same mixed-media folder.
 
 The More panel contains Windows actions and settings. Shortcuts are defined in
 `src/input.rs`. Wheel navigation can replace wheel zoom in Settings.
@@ -157,9 +177,17 @@ before playback. Timers sleep between frames and stop when paused/minimized.
 See [reproducible measurements](docs/PERFORMANCE.md); no benchmark superiority
 is claimed.
 
+Video initializes a separate bounded worker only on demand. Media Foundation
+owns audio/video timing; the app retains only the latest pending video frame.
+Presentation is capped at 1920 x 1080 with CPU readback and Slint upload; native
+codec and GPU memory are additional costs. Minimizing pauses video and audio.
+
+Measured startup, executable size and video CPU/RAM are recorded in
+[VIDEO_MEASUREMENTS.md](docs/VIDEO_MEASUREMENTS.md).
+
 ## Security philosophy
 
-Every image is untrusted input. Validate dimensions with overflow-safe arithmetic,
+Every image and video is untrusted input. Validate dimensions with overflow-safe arithmetic,
 limit file size and decoded storage, reject unsupported formats, and keep decoder
 errors away from the UI thread. Reparse-point files are rejected on Windows;
 open image handles deny writes and deletion while decoding. There is no image-
@@ -180,7 +208,7 @@ privately through GitHub Security Advisories.
 - Broader GPU/DPI/accessibility validation and color-management evaluation.
 - Evaluate HEIC/HEIF and JPEG XL; hardened SVG and RAW only if justified.
 
-No image editing, albums, tags, cloud, AI, video or PDF support is planned.
+No image editing, albums, tags, cloud, AI, streaming, music library or PDF support is planned.
 
 ## Contributing
 

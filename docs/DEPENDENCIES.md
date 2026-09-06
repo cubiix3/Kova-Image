@@ -8,7 +8,7 @@ graph: native UI/font support has a substantial build footprint.
 | --- | --- | --- |
 | Slint 1.17.1 | Active native toolkit; use its Royalty-free 2.0 desktop option with attribution | Winit + FemtoVG/OpenGL and software fallback only; no Qt, Skia, WebView, system-tray feature or runtime image downloading. GUI, text, font and SVG support remain transitive costs. Minor version pinned because the winit adapter is unstable. |
 | image 0.25.10 | Actively maintained image-rs project; MIT OR Apache-2.0 | Explicit JPEG/PNG/GIF/WebP/BMP/TIFF/ICO features, no default-format bundle and no Rayon. Limits, content detection, orientation and composited animation. Format-specific limits are not a universal allocator cap. |
-| windows / windows-core 0.62 | Microsoft bindings; MIT OR Apache-2.0 | Selected Win32/Shell/COM/clipboard APIs, shared version with Slint. Local unsafe ownership wrappers. No IPC or codec activation. |
+| windows / windows-core 0.62 | Microsoft bindings; MIT OR Apache-2.0 | Selected Win32/Shell/COM/clipboard/Registry/DWM and Media Foundation/D3D11 APIs, shared version with Slint. Native video initializes on demand; no bundled multimedia engine or IPC. |
 | raw-window-handle 0.6 | MIT OR Apache-2.0 | Already in the GUI graph; obtains an owner HWND for native dialogs/clipboard. |
 | slint-build | Same licensing family as Slint | Build-only UI compiler; its image features include encoders and formats not shipped as viewer decoders. |
 | winresource 0.1 | MIT | Build-only Windows resource compiler wrapper for icon, version and manifest. |
@@ -51,3 +51,17 @@ Primary references: [Slint license](https://github.com/slint-ui/slint/blob/cf62c
 [windows-rs](https://github.com/microsoft/windows-rs),
 [RustSec](https://rustsec.org/advisories/),
 [zenavif metadata](https://crates.io/crates/zenavif/0.1.6).
+
+## Local video addition
+
+No Cargo package was added. Selected features on the existing windows-rs binding
+expose Windows Media Foundation Media Engine and D3D11. The OS supplies container
+parsers, audio/video clocks and installed codecs; OS servicing supplies fixes.
+D3D hardware acceleration is requested, with WARP device fallback. The presence
+of a hardware device is not proof that each codec decoded in hardware.
+
+The executable does not link or launch FFmpeg, libVLC, mpv, a browser or a codec
+installer. FFmpeg may generate synthetic developer test clips; it is not an app
+or package dependency. This saves a bundled codec stack but makes format support
+dependent on the Windows installation. See [VIDEO.md](VIDEO.md) for references,
+real codec results, native allocation limits and the readback tradeoff.

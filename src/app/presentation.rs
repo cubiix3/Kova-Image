@@ -18,6 +18,12 @@ impl App {
     }
     pub(super) fn schedule(&self) {
         self.animation.stop();
+        if self.video_stamp.is_some() {
+            if let Some(player) = &self.video {
+                player.hidden(self.hidden);
+            }
+            return;
+        }
         if self.paused || self.hidden || self.playback.finished {
             return;
         }
@@ -68,6 +74,11 @@ impl App {
             .image
             .as_ref()
             .map(|i| kova_image::viewer::logical_image_size(i.width, i.height, dpi))
+            .or_else(|| {
+                self.video_state
+                    .as_ref()
+                    .map(|s| kova_image::viewer::logical_image_size(s.width, s.height, dpi))
+            })
             .unwrap_or((1., 1.));
         let viewport = self
             .ui
@@ -81,7 +92,13 @@ impl App {
             return;
         };
         let (image, viewport) = self.geometry();
-        let scale = self.view.scale(image, viewport);
+        let scale = if self.video_stamp.is_some() && ui.get_fullscreen() {
+            (viewport.0 / image.0)
+                .min(viewport.1 / image.1)
+                .clamp(0.001, 64.)
+        } else {
+            self.view.scale(image, viewport)
+        };
         ui.set_display_width(image.0 * scale);
         ui.set_display_height(image.1 * scale);
         ui.set_pan_x(self.view.pan.0);
@@ -105,6 +122,10 @@ impl App {
         }
     }
     pub(super) fn update_info(&self) {
+        if self.video_stamp.is_some() {
+            self.video_info();
+            return;
+        }
         if let (Some(ui), Some(image), Some(path)) =
             (self.ui.upgrade(), &self.image, &self.displayed)
         {
@@ -153,6 +174,9 @@ impl App {
         }
     }
     pub(super) fn zoom(&mut self, factor: f32, mouse: bool) {
+        if self.video_stamp.is_some() {
+            return;
+        }
         let (image, viewport) = self.geometry();
         let anchor = if mouse {
             let (left, top) = self

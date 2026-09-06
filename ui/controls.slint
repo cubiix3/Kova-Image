@@ -20,7 +20,7 @@ export component Tool inherits Rectangle {
     property <int> focus-id;
     init => { root.focus-id = Interaction.next-focus-id; Interaction.next-focus-id += 1; }
     height: Theme.control-height;
-    min-width: root.menu ? 0px : root.label == "" ? 36px : max(36px, label-text.preferred-width + (root.has-icon ? 50px : 24px));
+    min-width: root.menu ? 0px : root.label == "" ? 32px : max(32px, label-text.preferred-width + (root.has-icon ? 46px : 22px));
     preferred-width: root.min-width;
     horizontal-stretch: root.menu ? 1 : 0;
     border-radius: Theme.radius;
@@ -38,7 +38,7 @@ export component Tool inherits Rectangle {
     Rectangle {
       visible: !root.menu;
       HorizontalLayout {
-        padding-left: root.label == "" ? 9px : 12px; padding-right: root.label == "" ? 9px : 12px; spacing: 8px;
+        padding-left: root.label == "" ? 7px : 10px; padding-right: root.label == "" ? 7px : 10px; spacing: 8px;
         alignment: root.menu ? start : center;
         if root.has-icon: Rectangle { width: 18px; Image { source: root.icon; colorize: root.foreground; width: 18px; height: 18px; y: (parent.height - self.height)/2; } }
         label-text := Text { visible: root.label != ""; text: root.label; color: root.foreground; font-size: 13px; font-weight: root.active || root.primary ? 600 : 400; vertical-alignment: center; horizontal-stretch: root.menu ? 1 : 0; overflow: elide; }
@@ -83,8 +83,8 @@ export component Divider inherits Rectangle {
 }
 
 export component Group inherits Rectangle {
-    height: 40px;
-    border-radius: 9px;
+    height: 36px;
+    border-radius: 11px;
     background: Theme.raised;
     HorizontalLayout { padding: 2px; spacing: 2px; @children }
 }
@@ -93,7 +93,7 @@ export component ToggleRow inherits Rectangle {
     in property <string> label;
     in-out property <bool> checked;
     callback toggled(bool);
-    height: 36px;
+    height: 32px;
     border-radius: Theme.radius;
     background: touch.has-hover ? Theme.hover : transparent;
     border-width: focus.has-focus && Interaction.keyboard ? 2px : 0px;

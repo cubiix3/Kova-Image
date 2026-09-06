@@ -65,10 +65,12 @@ if ($missing.Count -gt 0) {
 @'
 Kova Image 0.1.0 - Early Development
 
-Windows 10/11 x64. Run kova-image.exe, or drop an image into its window.
+Windows 10/11 x64. Run kova-image.exe, or drop a local image or video into its window.
 The Microsoft Visual C++ 2015-2022 Redistributable (x64) may be required.
 This package is unsigned and experimental. No installer or associations are applied.
 If hardware rendering fails, run kova-image.exe --software.
+Video codecs are supplied by Windows; not every container/codec combination plays.
+Use Settings to opt in to Open with registration after choosing a permanent folder.
 No stable release is created by this script.
 '@ | Set-Content -Encoding utf8 -LiteralPath (Join-Path $stage 'RUNNING.txt')
 $zip = $stage + '.zip'

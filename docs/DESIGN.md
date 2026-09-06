@@ -20,8 +20,8 @@ appropriate for viewing images.
 | Selected surface / Kova accent | `#253e4b` / `#86d5f4` |
 | Subtle divider | `#2b3036` |
 
-The 56 px header balances the existing Kova mark, filename, format and dimensions.
-The 72 px bottom surface contains 36 px controls in 40 px groups: navigation,
+The 50 px header balances the existing Kova mark, filename, format and dimensions.
+The 60 px bottom surface contains 32 px controls in 36 px groups: navigation,
 zoom, fit mode, transforms/playback, and fullscreen/more. Below 820 px the Open
 label and spacing become compact; controls retain their hit areas. The minimum
 window remains 640 × 420. Popovers scroll within short windows.
@@ -61,8 +61,8 @@ and explicit ownership so destroying a popup cannot leave a stale focus count.
 
 ## Performance constraints
 
-The renderer, decoder pipeline, worker count, cache budgets and format support
-are unchanged. Only the two small chrome surfaces animate opacity, and only
+The image decoder and cache budgets retain their existing behavior. The video
+worker is separate and initialized only for video. Only the two small chrome surfaces animate opacity, and only
 during show/hide transitions. No animation is attached to the image or canvas.
 Metadata rows are updated on load/information requests, never per animation frame.
 No new Cargo dependencies were added.
@@ -73,22 +73,21 @@ on every frame. This hint is disabled for still images. It trades bounded chrome
 texture memory for less CPU work; the image itself is never cached in this layer.
 See Slint's [rendering-cache guidance](https://docs.slint.dev/latest/docs/slint/reference/common/#cache-rendering-hint).
 
-The viewport now has a 16 px inset in windowed mode. Cursor-anchored zoom accounts
+The viewport now has a 12 px inset in windowed mode. Cursor-anchored zoom accounts
 for that offset; fullscreen uses the full viewport. Geometry is still calculated
 by the existing Rust view model.
 
-## Possible video presentation
+## Local video presentation
 
-Video playback is **not implemented**. This is a visual extension point, not a
-format-support claim or a commitment to expand the current viewer's scope.
+Video uses the same header, canvas, controls and fullscreen behavior. The image
+zoom/transform groups yield to a single transport segment: Play/Pause, timeline,
+time and mute/volume. Both sliders use `ui/track.slint`, with 32 px pointer targets,
+visible keyboard focus and commit-on-release seeking. No per-pointer-move seek
+queue is created. Slint retains equal time strings between whole-second changes.
 
-If video is approved later, the existing control surface can gain a slim timeline
-row above it, with elapsed/total time and the same focus and active colors. The
-existing playback position would host Play/Pause; a compact mute/volume control
-would appear only for media with audio. Header, fullscreen behavior, loading and
-error presentation would remain shared. Images must never show a seekbar, volume
-controls or disabled video placeholders. Seek updates should be input-driven;
-text time updates should not redraw on every video frame.
+Buttons use 9 px corners; control segments use 11 px, panels 14-16 px and the
+compact empty-state card 18 px. Windows 11 window corners are requested through
+DWM, retaining native maximized/fullscreen behavior and older-Windows fallback.
 
 ## Remaining visual validation
 
@@ -96,7 +95,7 @@ text time updates should not redraw on every video frame.
 - Windows high-contrast/reduced-motion preferences are not yet integrated into
   the custom theme; the design does not claim full accessibility conformance.
 - Native file picker and Explorer/Open With surfaces retain Windows styling.
-- Any video UI requires an independently reviewed playback architecture first.
+- More codec profiles, native video orientation and device-loss recovery need validation.
 
 Local renderer captures and interaction checks are described in
 [PERFORMANCE.md](PERFORMANCE.md); generated captures stay in `artifacts/`.
@@ -105,3 +104,6 @@ Local renderer captures and interaction checks are described in
 
 Actual before/after measurements, including memory costs, are recorded in
 [UI_MEASUREMENTS.md](UI_MEASUREMENTS.md).
+
+The compact UI and local video extension has a separate
+[measurement record](VIDEO_MEASUREMENTS.md).

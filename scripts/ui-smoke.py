@@ -27,7 +27,7 @@ user.EnumWindows.argtypes = [callback_type, w.LPARAM]
 fixture = ROOT / "artifacts" / "fixtures" / "image1.jpg"
 if not fixture.exists():
     raise SystemExit("Run the fixtures example first (see docs/PERFORMANCE.md).")
-env = dict(os.environ, KOVA_TEST_CAPTURE=str(capture), LOCALAPPDATA=str(OUT / "local-settings"))
+env = dict(os.environ, KOVA_TEST_CAPTURE=str(capture), LOCALAPPDATA=str(OUT / "local-settings"), KOVA_TEST_MUTE="1")
 if state_file.exists():
     state_file.unlink()
 log = open(OUT / "viewer.log", "w", encoding="utf-8")
@@ -35,7 +35,13 @@ arguments = [str(ROOT / "target/debug/kova-image.exe")]
 scenario = next((arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--state=")), "")
 if "--software" in sys.argv:
     arguments.append("--software")
-if scenario == "missing":
+if scenario == "video":
+    settings=Path(env["LOCALAPPDATA"]) / "Kova Image/settings.conf"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text("video_autoplay=" + ("false" if "--no-autoplay" in sys.argv else "true") + "\n")
+    (ROOT / "artifacts/video-fixtures/clip0.png").write_bytes((fixture.parent / "image2.png").read_bytes())
+    arguments.append(str(ROOT / "artifacts/video-fixtures/clip1.mp4"))
+elif scenario == "missing":
     arguments.append(str(OUT / "missing-image.png"))
 elif scenario == "corrupted":
     damaged = OUT / "damaged-image.png"
@@ -124,7 +130,55 @@ try:
     wait_for(lambda: (user.EnumWindows(enum, 0), bool(windows))[1])
     hwnd = windows[0]
     keep_background()
-    if scenario:
+    if scenario == "video":
+        wait_for(state_file.exists, seconds=25)
+        values=snapshot("video-playing")
+        assert values["video"] == "true" and float(values["video_duration"]) > 5
+        if "--no-autoplay" in sys.argv:
+            assert values["paused"] == "true"
+        else:
+            key(0x20)
+        values=snapshot("video-paused")
+        assert values["paused"] == "true"
+        position=float(values["video_position"])
+        time.sleep(0.4)
+        assert abs(float(snapshot("video-paused-stable")["video_position"])-position)<0.15
+        click(600,710)
+        assert float(snapshot("video-seek")["video_position"]) > 3
+        click(540,370)
+        key(ord("M"))
+        assert snapshot("video-unmuted")["muted"] == "false"
+        key(ord("M"))
+        assert snapshot("video-muted")["muted"] == "true"
+        key(ord("I"))
+        assert snapshot("video-info")["info"] == "true"
+        key(0x1B)
+        user.SetWindowPos(hwnd,None,0,0,640,420,0x0006)
+        snapshot("video-small")
+        user.SetWindowPos(hwnd,None,0,0,1080,740,0x0006)
+        key(0x7A)
+        time.sleep(0.3)
+        keep_background()
+        user.PostMessageW(hwnd,0x200,0,540 | (370 << 16))
+        time.sleep(2.5)
+        assert snapshot("video-fullscreen-hidden")["chrome"] == "false"
+        user.PostMessageW(hwnd,0x200,0,541 | (370 << 16))
+        assert snapshot("video-fullscreen-awake")["chrome"] == "true"
+        key(0x1B)
+        key(0x25)
+        values=snapshot("video-to-image")
+        assert values["filename"]=="clip0.png" and values["video"]=="false"
+        key(0x27)
+        assert snapshot("image-to-video")["video"]=="true"
+        key(0x27)
+        key(0x27)
+        key(0x27)
+        values=snapshot("video-rapid-navigation")
+        assert values["filename"]=="clip4.mkv" and values["video"]=="true"
+        time.sleep(0.5)
+        assert snapshot("video-stale-protection")["filename"]=="clip4.mkv"
+        print("PASS: native video frame, pause, stable clock, timeline seek, mute, info, compact layout, fullscreen auto-hide")
+    elif scenario:
         time.sleep(0.5)
         values = snapshot("state-" + scenario)
         if scenario in ("missing", "corrupted"):
@@ -191,17 +245,20 @@ try:
         time.sleep(0.3)
         click(1040, 714)
         assert snapshot("17-more")["more"] == "true"
-        click(960, 582)
+        click(960, 616)
         assert snapshot("18-settings")["settings"] == "true"
+        user.PostMessageW(hwnd,0x200,0,600 | (450 << 16))
+        user.PostMessageW(hwnd,0x20A,((-720) & 0xffff) << 16,600 | (450 << 16))
+        snapshot("18a-associations")
         key(0x1B)
         if "--clipboard" in sys.argv:
             click(1040, 714)
             time.sleep(0.2)
-            click(940, 390)
+            click(940, 444)
             assert snapshot("19-copy-path")["status"] == "Path copied"
             click(1040, 714)
             time.sleep(0.2)
-            click(940, 350)
+            click(940, 410)
             assert snapshot("20-copy-image")["status"] == "Image copied"
             print("PASS: native Copy Path and Copy Image (clipboard now contains the generated fixture)")
         print("PASS: CLI, next/first/last, natural order, zoom, rotation, flip, fullscreen, animation pause/resume, info, resize")

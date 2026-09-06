@@ -4,13 +4,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "jpe", "png", "apng", "gif", "webp", "bmp", "tif", "tiff", "ico",
-];
+pub const EXTENSIONS: &[&str] = crate::media::IMAGE_EXTENSIONS;
 pub fn supported_extension(path: &Path) -> bool {
-    path.extension()
-        .and_then(|x| x.to_str())
-        .is_some_and(|s| EXTENSIONS.iter().any(|ext| s.eq_ignore_ascii_case(ext)))
+    path.extension().and_then(|x| x.to_str()).is_some_and(|s| {
+        EXTENSIONS
+            .iter()
+            .chain(crate::media::VIDEO_EXTENSIONS)
+            .any(|ext| s.eq_ignore_ascii_case(ext))
+    })
 }
 pub fn natural_cmp(left: &str, right: &str) -> Ordering {
     let l = left.to_lowercase();

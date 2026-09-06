@@ -39,8 +39,13 @@ Image under Open with. File associations must be opt-in and use supported
 Windows default-app flows; never overwrite UserChoice hashes.
 
 Code signing, SmartScreen reputation, ARM64 support, redistributable licensing,
-upgrade/uninstall behavior and file associations are not yet validated. There
+upgrade/uninstall behavior and clean-machine file associations need more validation. There
 is no MSI/MSIX/Inno installer or stable release in this initial repository.
 
 The package script has been run successfully on the development machine. The
 result is a local evaluation artifact, not a validated clean-machine installer.
+
+Per-user registration and a Default Apps settings helper are implemented; see
+[FILE_ASSOCIATIONS.md](FILE_ASSOCIATIONS.md). Portable packaging itself does not
+register or change defaults. Videos require Windows Media Foundation and a
+compatible installed codec; no codec engine or pack is redistributed.

@@ -16,7 +16,7 @@ release acceptance claim.
 - Windows CI runs formatting, check, strict Clippy, tests and release compilation.
 - A separate cargo-audit workflow leaves maintenance warnings visible.
 - Local formatting, check, strict Clippy, tests and release compilation pass.
-  The current suite contains **23 passing tests**, with no ignored tests.
+  The current suite contains **29 passing tests**, with no ignored tests.
 - The dependency graph is populated; GitHub's SBOM endpoint returns packages.
 - Dependabot alerts/security updates, secret scanning, push protection and private
   vulnerability reporting were enabled and read back from GitHub's API.
@@ -73,8 +73,41 @@ captures are published in documentation. See [DESIGN.md](DESIGN.md).
 - Cache budgets do not include every decoder scratch allocation, copied renderer
   frame or GPU texture. There is no hard total-process memory guarantee.
 - Shell operations have path-based race limitations; see security architecture.
-- No installer, signing, automatic associations or single-instance reuse.
+- No installer, signing, automatic default takeover or single-instance reuse.
 - No external comparative benchmarks or cold-start claims.
 
 The initial code is suitable for evaluation and iteration, not a claim that every
 V1 objective or every hostile image is already handled.
+
+## Compact UI and local video
+
+The header is now 50 px, the bottom bar 60 px, with 32 px controls and consistent
+rounded groups. Real renderer captures cover the empty state, image view, video
+transport, short windows and popovers. The mixed navigation GUI check switches
+image -> MP4 -> MOV -> WebM -> MKV and verifies that late results cannot replace
+the newest file. Timeline seeking, pause/clock stability, mute, file information
+and fullscreen hide/wake are checked against the running native player.
+
+The muted `video_probe` checks H.264/AAC MP4, MOV and MKV: non-empty RGBA frames,
+pause/seek, end-of-file, looping and a writable file handle after acknowledged
+Stop. VP8/Vorbis and VP9/Opus WebM files return a codec error on this machine;
+successful WebM playback is not claimed. Deterministic Cargo tests cover mixed
+navigation, cancelled admission, read locks, Unicode/long paths, missing files,
+external references, compressed/reference movie rejection, box lengths and depth.
+See [VIDEO.md](VIDEO.md) for repeatable commands and native limitations.
+
+Per-user registration was run from a permanent local Programs folder and read
+back with `scripts/associations-smoke.ps1`: all 16 capabilities, quoted ProgID
+commands, OpenWith entries and RegisteredApplications were present. Existing
+UserChoice ProgID/hash values stayed unchanged. This verifies registration on
+the development machine, not every Explorer/default-picker behavior on clean
+Windows installations. The user still chooses defaults in Windows Settings.
+
+The software rendering path and saved video-autoplay=false first-open path also
+pass GUI checks. Image startup and 1080p video CPU/RAM samples are recorded in
+[VIDEO_MEASUREMENTS.md](VIDEO_MEASUREMENTS.md). The release executable and local
+unsigned portable package build successfully; no stable release was published.
+
+The settings scroll extent was corrected so Windows registration/default-app
+helpers remain reachable. The bottom section was captured after real wheel
+input; it is not merely present outside the visible panel.
