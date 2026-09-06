@@ -67,4 +67,3 @@ try {
 }
 $rows | Export-Csv -NoTypeInformation -LiteralPath (Join-Path $output 'animation.csv')
 $rows | Format-Table
-
