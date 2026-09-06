@@ -14,11 +14,15 @@
 > There is no stable release or installer yet. Build from source to try it.
 > See [verification and limitations](docs/VALIDATION.md).
 
+<p align="center"><a href="https://slint.dev"><img src="assets/made-with-slint.png" width="150" alt="Made with Slint"></a></p>
+
 ## What is Kova Image?
 
 A standalone, native Windows image and animation viewer in the Kova product
 family. Built with **Rust, Slint and official Windows APIs**. Open an image,
 see it, and move through its folder. Kova Image is a viewer, not an editor.
+
+![Kova Image running with an original generated test image](docs/images/viewer.png)
 
 ## Goals
 
@@ -166,10 +170,10 @@ privately through GitHub Security Advisories.
 
 ## Roadmap
 
-- AVIF decoding with an acceptable license, bounded memory and repeatable builds.
-- Progressive/scaled decode, streaming animations and measured navigation tuning.
-- Fuzzing, stronger file identity checks and optional decoder process isolation.
-- Signed portable packages, an installer and opt-in Open with/file associations.
+- [AVIF decoding](https://github.com/cubiix3/Kova-Image/issues/3) with an acceptable license, bounded memory and repeatable builds.
+- [Progressive/scaled decode and streaming animations](https://github.com/cubiix3/Kova-Image/issues/4), with measured navigation tuning.
+- [Fuzzing and stronger file identity checks](https://github.com/cubiix3/Kova-Image/issues/6), including decoder isolation evaluation.
+- [Validated portable packages and an installer](https://github.com/cubiix3/Kova-Image/issues/5), with signing and opt-in file associations.
 - Broader GPU/DPI/accessibility validation and color-management evaluation.
 - Evaluate HEIC/HEIF and JPEG XL; hardened SVG and RAW only if justified.
 

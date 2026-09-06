@@ -81,6 +81,7 @@ struct App {
     measure: Option<PathBuf>,
     first_reported: bool,
     render_contains_image: bool,
+    render_notifications: bool,
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -178,6 +179,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         measure,
         first_reported: false,
         render_contains_image: false,
+        render_notifications: false,
     }));
     APP.with(|slot| *slot.borrow_mut() = Some(app.clone()));
     ui.on_command(|name| {
@@ -204,16 +206,20 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     // Measures first render completion, not a claimed disk-cold startup time.
-    ui.window().set_rendering_notifier(|state, _| match state {
-        slint::RenderingState::BeforeRendering => with_app(|app| {
-            app.render_contains_image = app
-                .ui
-                .upgrade()
-                .is_some_and(|ui| ui.get_has_image() && !ui.get_loading());
-        }),
-        slint::RenderingState::AfterRendering => with_app(|app| app.first_render()),
-        _ => {}
-    })?;
+    let notifications = ui
+        .window()
+        .set_rendering_notifier(|state, _| match state {
+            slint::RenderingState::BeforeRendering => with_app(|app| {
+                app.render_contains_image = app
+                    .ui
+                    .upgrade()
+                    .is_some_and(|ui| ui.get_has_image() && !ui.get_loading());
+            }),
+            slint::RenderingState::AfterRendering => with_app(|app| app.first_render()),
+            _ => {}
+        })
+        .is_ok();
+    app.borrow_mut().render_notifications = notifications;
     app.borrow().sync_settings();
     ui.show()?;
     if let Some(path) = path {
@@ -299,6 +305,9 @@ impl App {
                         self.update_view();
                         self.schedule();
                         self.update_info();
+                        if !self.render_notifications {
+                            self.image_ready_without_notifier();
+                        }
                         #[cfg(debug_assertions)]
                         eprintln!(
                             "load: {:.2}ms, cache={cached}",

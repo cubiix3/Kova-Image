@@ -1,6 +1,29 @@
 use super::*;
 
 impl App {
+    pub(super) fn image_ready_without_notifier(&mut self) {
+        if self.first_reported {
+            return;
+        }
+        self.first_reported = true;
+        if let Some(path) = self.measure.take() {
+            let ms = self.started.elapsed().as_secs_f64() * 1000.0;
+            let _ = std::thread::spawn(move || {
+                let _ = std::fs::write(
+                    path,
+                    format!(
+                        "{{\"first_render_ms\":null,\"image_ready_ms\":{ms:.3},\"metric\":\"image_ready_render_callback_unavailable\"}}\n"
+                    ),
+                );
+            });
+        }
+        #[cfg(debug_assertions)]
+        if std::env::var_os("KOVA_TEST_CAPTURE").is_some() {
+            Timer::single_shot(Duration::from_millis(150), || {
+                with_app(|app| app.capture_test_frame())
+            });
+        }
+    }
     pub(super) fn first_render(&mut self) {
         if self.render_contains_image && !self.first_reported {
             self.first_reported = true;
@@ -28,7 +51,7 @@ impl App {
                 let (width, height) = (pixels.width(), pixels.height());
                 let bytes = pixels.as_bytes().to_vec();
                 let state = format!(
-                    "filename={}\nstatus={}\nrotation={}\nflip_h={}\nflip_v={}\nzoom={}\npaused={}\nframe={}\nfullscreen={}\nwidth={}\nheight={}\n",
+                    "filename={}\nstatus={}\nrotation={}\nflip_h={}\nflip_v={}\nzoom={}\npaused={}\nframe={}\nfullscreen={}\nwidth={}\nheight={}\npan_x={}\npan_y={}\n",
                     ui.get_filename(),
                     ui.get_status(),
                     self.view.rotation,
@@ -39,7 +62,9 @@ impl App {
                     self.playback.frame,
                     ui.get_fullscreen(),
                     width,
-                    height
+                    height,
+                    self.view.pan.0,
+                    self.view.pan.1
                 );
                 let _ = std::thread::spawn(move || {
                     let path = PathBuf::from(path);

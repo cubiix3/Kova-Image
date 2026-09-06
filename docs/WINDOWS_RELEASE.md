@@ -41,3 +41,6 @@ Windows default-app flows; never overwrite UserChoice hashes.
 Code signing, SmartScreen reputation, ARM64 support, redistributable licensing,
 upgrade/uninstall behavior and file associations are not yet validated. There
 is no MSI/MSIX/Inno installer or stable release in this initial repository.
+
+The package script has been run successfully on the development machine. The
+result is a local evaluation artifact, not a validated clean-machine installer.

@@ -10,6 +10,7 @@ Generated fixtures contain no private images and are reproducible from source.
 .\target\release\kova-bench.exe artifacts\fixtures\image1.jpg artifacts\fixtures\image2.png artifacts\fixtures\image10.webp artifacts\fixtures\image20-large.png
 .\scripts\measure.ps1 -Image artifacts\fixtures\image1.jpg -Runs 10
 .\scripts\measure.ps1 -Image artifacts\fixtures\image1.jpg -Runs 10 -Software
+.\scripts\runtime-measure.ps1 -Animation artifacts\fixtures\image3.gif -SecondsPerPhase 10
 ```
 
 `kova-bench` reports file-open + decode wall time, dimensions, frame count and
@@ -19,6 +20,11 @@ whose frame started with a loaded image. `measure.ps1` adds external launch-to-
 observation latency, peak working set and private bytes. The external value
 includes 20 ms observation granularity and process-launch overhead. No per-frame
 logging or measurement runs during ordinary release use.
+
+Slint's software renderer does not expose the rendering notifier. In that mode,
+the JSON explicitly reports `first_render_ms: null` and `image_ready_ms` (decoded
+image submitted to the UI). Do not compare this value to hardware first-render
+completion as if they measured the same event.
 
 The first process after building is not necessarily disk-cold. Use a fresh boot
 or a controlled Windows VM for a cold-start experiment; document how the OS cache
@@ -36,8 +42,9 @@ was handled. Do not label repeated launches "cold startup".
 6. Try rapid navigation during a large uncached load; assert the requested file
    is the one displayed and record latency outliers, not just an average.
 
-Current automated tooling covers per-format decode and first-render/startup/RAM.
-Cached-vs-uncached end-to-end navigation, long-session RAM, GIF CPU, and truly
+Current automated tooling covers per-format decode, first-render/startup/RAM,
+and GIF CPU/private-memory sampling while playing, paused and minimized.
+Cached-vs-uncached end-to-end navigation, long-session RAM and truly
 cold startup still need a dedicated benchmark harness. AVIF cannot be measured
 until its decoder is implemented. No performance superiority is claimed.
 
@@ -55,3 +62,10 @@ It does not capture the user's desktop. Outputs go to ignored `artifacts/`.
 It covers navigation, natural order, fit/zoom, transforms, fullscreen, animation,
 information UI and small-window resize. This is a local test, not an unattended
 desktop test on GitHub's hosted runner.
+
+Pass `--software` to repeat GUI checks on the fallback. Pass `--clipboard` only
+when willing to replace the clipboard with a generated fixture; that opt-in
+tests native Copy Path and Copy Image without reading previous clipboard data.
+
+See [the initial measurement record](MEASUREMENTS.md) for the observed local
+values and their limits.

@@ -31,7 +31,11 @@ env = dict(os.environ, KOVA_TEST_CAPTURE=str(capture), LOCALAPPDATA=str(OUT / "l
 if state_file.exists():
     state_file.unlink()
 log = open(OUT / "viewer.log", "w", encoding="utf-8")
-process = subprocess.Popen([str(ROOT / "target/debug/kova-image.exe"), str(fixture)], env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+arguments = [str(ROOT / "target/debug/kova-image.exe")]
+if "--software" in sys.argv:
+    arguments.append("--software")
+arguments.append(str(fixture))
+process = subprocess.Popen(arguments, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
 hwnd = None
 
 
@@ -103,14 +107,28 @@ try:
     assert snapshot("01-fit")["filename"] == "image1.jpg"
     key(0x27)
     assert snapshot("02-next")["filename"] == "image2.png"
+    user.PostMessageW(hwnd, 0x20B, 1 << 16, 540 | (370 << 16))
+    user.PostMessageW(hwnd, 0x20C, 1 << 16, 540 | (370 << 16))
+    assert snapshot("02a-mouse-back")["filename"] == "image1.jpg"
+    user.PostMessageW(hwnd, 0x20B, 2 << 16, 540 | (370 << 16))
+    user.PostMessageW(hwnd, 0x20C, 2 << 16, 540 | (370 << 16))
+    assert snapshot("02b-mouse-forward")["filename"] == "image2.png"
     key(0x23)
     assert snapshot("03-last")["filename"] == "image20-large.png"
     key(0x24)
     assert snapshot("04-first")["filename"] == "image1.jpg"
     key(ord("1"))
     assert snapshot("05-actual")["zoom"] == "100%"
+    user.PostMessageW(hwnd, 0x200, 0, 540 | (370 << 16))
+    user.PostMessageW(hwnd, 0x201, 1, 540 | (370 << 16))
+    user.PostMessageW(hwnd, 0x200, 1, 640 | (420 << 16))
+    user.PostMessageW(hwnd, 0x202, 0, 640 | (420 << 16))
+    pan = snapshot("05a-pan")
+    assert float(pan["pan_x"]) == 100 and float(pan["pan_y"]) == 50
     key(0xBB)
     assert snapshot("06-zoom")["zoom"] == "120%"
+    user.PostMessageW(hwnd, 0x20A, 120 << 16, 640 | (420 << 16))
+    assert snapshot("06a-wheel")["zoom"] == "144%"
     key(ord("R"))
     assert snapshot("07-rotate")["rotation"] == "90"
     key(ord("H"))

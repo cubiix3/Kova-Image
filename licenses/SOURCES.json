@@ -1,0 +1,112 @@
+[
+  {
+    "file": "licenses/clipboard-win-5.4.1/LICENSE",
+    "source": "https://github.com/DoumanAsh/clipboard-win/blob/3b27cf2bfd1adcfa6e0264eb51c1025ddaf0f342/LICENSE",
+    "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+  },
+  {
+    "file": "licenses/gl_generator-0.14.0/LICENSE",
+    "source": "https://github.com/brendanzab/gl-rs/blob/ea503e8d5fb6d73c6030e6191ce738cd3bf3433e/LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  {
+    "file": "licenses/integer-sqrt-0.1.5/LICENSE-APACHE",
+    "source": "https://github.com/derekdreery/integer-sqrt-rs/blob/282d0d4e26fd41d888894f5578b9d7553f7be0c8/LICENSE-APACHE",
+    "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+  },
+  {
+    "file": "licenses/integer-sqrt-0.1.5/LICENSE-MIT",
+    "source": "https://github.com/derekdreery/integer-sqrt-rs/blob/282d0d4e26fd41d888894f5578b9d7553f7be0c8/LICENSE-MIT",
+    "sha256": "0029ee19467a3fc365e6f0fe61b95ad2525f2b55478ec1159bfc570657273111"
+  },
+  {
+    "file": "licenses/khronos_api-3.1.0/LICENSE",
+    "source": "https://github.com/brendanzab/gl-rs/blob/f150967b1c44ae888e6676f93f639ebc82771bdc/LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  {
+    "file": "licenses/lyon_algorithms-1.0.21/LICENSE-APACHE",
+    "source": "https://github.com/nical/lyon/blob/994526f2766c7e9bc5bb16687232fd7e8999dbdf/LICENSE-APACHE",
+    "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06"
+  },
+  {
+    "file": "licenses/lyon_algorithms-1.0.21/LICENSE-MIT",
+    "source": "https://github.com/nical/lyon/blob/994526f2766c7e9bc5bb16687232fd7e8999dbdf/LICENSE-MIT",
+    "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e"
+  },
+  {
+    "file": "licenses/lyon_extra-1.1.0/LICENSE-APACHE",
+    "source": "https://github.com/nical/lyon/blob/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-APACHE",
+    "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06"
+  },
+  {
+    "file": "licenses/lyon_extra-1.1.0/LICENSE-MIT",
+    "source": "https://github.com/nical/lyon/blob/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-MIT",
+    "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e"
+  },
+  {
+    "file": "licenses/lyon_geom-1.0.19/LICENSE-APACHE",
+    "source": "https://github.com/nical/lyon/blob/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-APACHE",
+    "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06"
+  },
+  {
+    "file": "licenses/lyon_geom-1.0.19/LICENSE-MIT",
+    "source": "https://github.com/nical/lyon/blob/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-MIT",
+    "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e"
+  },
+  {
+    "file": "licenses/lyon_path-1.0.19/LICENSE-APACHE",
+    "source": "https://github.com/nical/lyon/blob/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-APACHE",
+    "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06"
+  },
+  {
+    "file": "licenses/lyon_path-1.0.19/LICENSE-MIT",
+    "source": "https://github.com/nical/lyon/blob/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-MIT",
+    "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e"
+  },
+  {
+    "file": "licenses/profiling-1.0.18/LICENSE-APACHE",
+    "source": "https://github.com/aclysma/profiling/blob/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-APACHE",
+    "sha256": "10d30a673cd5e9349bdc02aeb48f14b3386d27d0da32df8f0a555d4aa16aa551"
+  },
+  {
+    "file": "licenses/profiling-1.0.18/LICENSE-MIT",
+    "source": "https://github.com/aclysma/profiling/blob/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT",
+    "sha256": "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333"
+  },
+  {
+    "file": "licenses/profiling-procmacros-1.0.18/LICENSE-APACHE",
+    "source": "https://github.com/aclysma/profiling/blob/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-APACHE",
+    "sha256": "10d30a673cd5e9349bdc02aeb48f14b3386d27d0da32df8f0a555d4aa16aa551"
+  },
+  {
+    "file": "licenses/profiling-procmacros-1.0.18/LICENSE-MIT",
+    "source": "https://github.com/aclysma/profiling/blob/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT",
+    "sha256": "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333"
+  },
+  {
+    "file": "licenses/pulp-wasm-simd-flag-0.1.1/LICENSE",
+    "source": "https://github.com/sarah-quinones/pulp/blob/5eb07fd7b68edf0a5e19f71737d315f72a510295/LICENSE",
+    "sha256": "d64f878c89bd5f1e5ada7e4aad57690b122727cf5229b7b87ea1980c188da1d9"
+  },
+  {
+    "file": "licenses/rspolib-0.1.2/LICENSE",
+    "source": "https://github.com/mondeja/rspolib/blob/8170d99ebad29d894712ccb3dc6d0be2198d3055/LICENSE",
+    "sha256": "4fe9b5fce8fd028261959d039d19ef66182be088ab48ffa97dbeaef7b35e39c3"
+  },
+  {
+    "file": "licenses/taffy-0.10.1/LICENSE.md",
+    "source": "https://github.com/DioxusLabs/taffy/blob/639f0acdd20f914f847abffbeaa903d66cae4882/LICENSE.md",
+    "sha256": "a7083ef3dd41a65eeb2162c2c091b0082e2724fb4c6ed029b363c7840d244ecd"
+  },
+  {
+    "file": "licenses/zune-inflate-0.2.54/LICENSE-ZLIB",
+    "source": "https://github.com/etemesi254/zune-image/blob/69502ce83fdfecdd0beefd677e2abb3781b29d98/LICENSE-ZLIB",
+    "sha256": "7fa429541e55b1509909e058f2d21a37467e4958ec713b357f6e0cf9dc4ee352"
+  },
+  {
+    "file": "licenses/zune-inflate-0.2.54/LICENSE.md",
+    "source": "https://github.com/etemesi254/zune-image/blob/69502ce83fdfecdd0beefd677e2abb3781b29d98/LICENSE.md",
+    "sha256": "e870d7fd7819a9f0453c62798cb52ae95d148a8c91dc2de1d983f997143c72de"
+  }
+]

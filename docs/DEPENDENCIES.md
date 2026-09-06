@@ -44,7 +44,7 @@ HEIC/HEIF, JPEG XL and RAW require separate license, memory, maintenance and
 distribution evaluation. SVG would require a deliberate bounded rendering and
 external-resource policy; using a browser is not an option.
 
-Primary references: [Slint license](https://slint.dev/royalty-free-license),
+Primary references: [Slint license](https://github.com/slint-ui/slint/blob/cf62c975c311e7036d599ed8ed0b7e6a8386a934/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md),
 [Slint winit API](https://docs.rs/slint/1.17.1/slint/winit_030/index.html),
 [image limits](https://docs.rs/image/0.25.10/image/struct.Limits.html),
 [image source](https://github.com/image-rs/image),
