@@ -1,0 +1,43 @@
+[package]
+name = "kova-image"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+authors = ["Kova Contributors"]
+license = "MIT OR Apache-2.0"
+description = "A fast, lightweight and secure image viewer for Windows."
+repository = "https://github.com/cubiix3/Kova-Image"
+
+[dependencies]
+raw-window-handle = "0.6"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff", "ico"] }
+slint = { version = "~1.17.1", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "compat-1-2", "unstable-winit-030"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-core = "0.62"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_Graphics_Gdi", "Win32_System_Ole"] }
+
+[build-dependencies]
+slint-build = "~1.17.1"
+winresource = "0.1.31"
+
+[dev-dependencies]
+png = "0.18"
+gif = "0.14"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[[bin]]
+name = "kova-image"
+path = "src/main.rs"
+
+[[bin]]
+name = "kova-bench"
+path = "src/bin/bench.rs"

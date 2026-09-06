@@ -1,0 +1,174 @@
+import { CheckBox, Palette } from "std-widgets.slint";
+
+component Tool inherits Rectangle {
+    in property <string> label;
+    in property <bool> accent: false;
+    callback clicked;
+    height: 32px;
+    min-width: max(36px, text.preferred-width + 22px);
+    preferred-width: max(36px, text.preferred-width + 22px);
+    horizontal-stretch: 0;
+    border-radius: 6px;
+    background: touch.has-hover ? #2a3b49 : root.accent ? #243c4c : transparent;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-action-default => { root.clicked(); }
+    text := Text { text: root.label; color: root.accent ? #86d5f4 : #c8d1dc; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+export component ViewerWindow inherits Window {
+    init => { Palette.color-scheme = ColorScheme.dark; }
+    title: "Kova Image";
+    icon: @image-url("../assets/kova.svg");
+    preferred-width: 1080px; preferred-height: 740px; min-width: 640px; min-height: 420px;
+    no-frame: true;
+    background: #0d1117;
+    default-font-family: "Segoe UI";
+    default-font-size: 13px;
+    in property <image> picture;
+    in property <bool> has-image: false;
+    in property <bool> loading: false;
+    in property <string> filename: "Kova Image";
+    in property <string> status;
+    in property <string> info;
+    in property <string> zoom-label: "Fit";
+    in property <float> display-width;
+    in property <float> display-height;
+    in property <float> pan-x;
+    in property <float> pan-y;
+    in property <int> rotation;
+    in property <bool> flip-h;
+    in property <bool> flip-v;
+    in property <bool> fullscreen;
+    in property <bool> chrome: true;
+    in property <bool> animated;
+    in property <bool> paused;
+    in property <bool> light-background;
+    in-out property <bool> pixelated;
+    in-out property <bool> show-more;
+    in-out property <bool> show-info;
+    in-out property <bool> show-settings;
+    in-out property <bool> autoplay: true;
+    in-out property <bool> looping: true;
+    in-out property <bool> natural-sort: true;
+    in-out property <bool> auto-hide: true;
+    in-out property <bool> wheel-zoom: true;
+    out property <float> viewport-width: canvas.width / 1px;
+    out property <float> viewport-height: canvas.height / 1px;
+    out property <float> viewport-top: canvas.y / 1px;
+    callback command(string);
+    callback setting(string,bool);
+    callback drag-window;
+
+    canvas := Rectangle {
+        y: root.fullscreen ? 0px : 44px;
+        height: root.height - (root.fullscreen ? 0px : 96px);
+        width: root.width;
+        background: root.light-background ? #cfd3d8 : #0d1117;
+        clip: true;
+        if root.has-image: Image {
+            source: root.picture;
+            x: (parent.width - self.width)/2 + root.pan-x * 1px;
+            y: (parent.height - self.height)/2 + root.pan-y * 1px;
+            width: root.display-width * 1px;
+            height: root.display-height * 1px;
+            image-fit: fill;
+            transform-rotation: root.rotation * 1deg;
+            transform-scale-x: root.flip-h ? -100% : 100%;
+            transform-scale-y: root.flip-v ? -100% : 100%;
+            image-rendering: root.pixelated ? ImageRendering.pixelated : ImageRendering.smooth;
+            accessible-label: root.filename;
+        }
+        if !root.has-image: VerticalLayout {
+            alignment: center; spacing: 14px;
+            Rectangle { height: 76px; Image { source: @image-url("../assets/kova.svg"); width: 64px; height: 64px; x: (parent.width - self.width)/2; } }
+            Text { text: "Kova Image"; color: #e5edf5; font-size: 28px; font-weight: 600; horizontal-alignment: center; }
+            Text { text: "Open an image. See it immediately. Move on."; color: #8996a5; horizontal-alignment: center; }
+            HorizontalLayout { alignment: center; padding-top: 12px; Tool { label: "Open image"; accent: true; clicked => { root.command("open"); } } }
+            Text { text: "Drop an image here  ·  Ctrl+O"; color: #667585; font-size: 12px; horizontal-alignment: center; }
+        }
+    }
+    if root.chrome: Rectangle {
+        x: 0px; y: 0px; height: 44px; background: #141c25;
+        TouchArea { pointer-event(event) => { if event.kind == PointerEventKind.down && event.button == PointerEventButton.left { root.drag-window(); } } }
+        HorizontalLayout {
+            padding-left: 12px; padding-right: 6px; spacing: 8px;
+            Image { source: @image-url("../assets/kova.svg"); width: 25px; height: 25px; vertical-alignment: center; }
+            Text { text: "Kova Image"; color: #e2eaf2; font-weight: 600; width: 90px; vertical-alignment: center; }
+            Text { text: root.filename == "Kova Image" ? "" : root.filename; color: #8996a5; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+            Tool { label: "Open"; clicked => { root.command("open"); } }
+            Tool { label: "−"; clicked => { root.command("minimize"); } }
+            Tool { label: "□"; clicked => { root.command("maximize"); } }
+            Tool { label: "×"; clicked => { root.command("close"); } }
+        }
+    }
+    if root.chrome: Rectangle {
+        y: root.height - 52px; height: 52px; background: #141c25;
+        HorizontalLayout {
+            padding: 10px; spacing: 5px;
+            Tool { label: "‹"; clicked => { root.command("previous"); } }
+            Tool { label: "›"; clicked => { root.command("next"); } }
+            Rectangle { width: 10px; }
+            Tool { label: "−"; clicked => { root.command("out"); } }
+            Tool { label: root.zoom-label; clicked => { root.command("actual"); } }
+            Tool { label: "+"; clicked => { root.command("in"); } }
+            Tool { label: "Fit"; clicked => { root.command("fit"); } }
+            Tool { label: "100%"; clicked => { root.command("actual"); } }
+            Tool { label: "Rotate"; clicked => { root.command("right"); } }
+            if root.animated: Tool { label: root.paused ? "Play" : "Pause"; clicked => { root.command("pause"); } }
+            Rectangle { horizontal-stretch: 1; }
+            Tool { label: "Fullscreen"; clicked => { root.command("fullscreen"); } }
+            Tool { label: "More"; clicked => { root.show-more = !root.show-more; } }
+        }
+    }
+    if root.status != "": Rectangle {
+        x: 18px; y: root.height - 92px; height: 30px;
+        width: min(parent.width - 36px, notice.preferred-width + 24px);
+        border-radius: 5px; background: #23303ee6;
+        notice := Text { x: 12px; width: parent.width - 24px; text: root.status; color: #d8e3ef; vertical-alignment: center; overflow: elide; font-size: 12px; }
+    }
+    if root.show-more: Rectangle {
+        width: 212px; height: 440px; x: parent.width - self.width - 12px; y: parent.height - self.height - 60px;
+        border-radius: 9px; background: #202b38; border-width: 1px; border-color: #354253;
+        VerticalLayout { padding: 10px; spacing: 1px;
+            Tool { label: "Fit width   W"; clicked => { root.command("width"); root.show-more=false; } }
+            Tool { label: "Rotate left   Shift+R"; clicked => { root.command("left"); root.show-more=false; } }
+            Tool { label: "Flip horizontal   H"; clicked => { root.command("horizontal"); root.show-more=false; } }
+            Tool { label: "Flip vertical   V"; clicked => { root.command("vertical"); root.show-more=false; } }
+            Tool { label: "Copy image   Ctrl+C"; clicked => { root.command("copy"); root.show-more=false; } }
+            Tool { label: "Copy path   Ctrl+Shift+C"; clicked => { root.command("path"); root.show-more=false; } }
+            Tool { label: "Move to Recycle Bin"; clicked => { root.command("delete"); root.show-more=false; } }
+            Tool { label: "Show in Explorer"; clicked => { root.command("reveal"); root.show-more=false; } }
+            Tool { label: "Open with…"; clicked => { root.command("open-with"); root.show-more=false; } }
+            Tool { label: "Image information   I"; clicked => { root.command("info"); root.show-more=false; } }
+            Tool { label: "Settings"; clicked => { root.command("settings"); root.show-more=false; } }
+            Text { text: "0.1.0 · Early Development\nMade with Slint"; color: #8996a5; font-size: 11px; horizontal-alignment: center; height: 40px; }
+        }
+    }
+    if root.show-info || root.show-settings: Rectangle {
+        background: #00000099;
+        TouchArea { clicked => { root.show-info=false; root.show-settings=false; } }
+        Rectangle {
+            width: min(500px,parent.width - 60px); height: root.show-settings ? 452px : 300px;
+            x: (parent.width - self.width)/2; y: (parent.height - self.height)/2;
+            border-radius: 12px; background: #1b2531; border-width: 1px; border-color: #354253;
+            TouchArea { }
+            VerticalLayout { padding: 24px; spacing: 12px;
+                Text { text: root.show-settings ? "Settings" : "Image information"; color: #edf3fa; font-size: 19px; font-weight: 600; height: 30px; }
+                if root.show-info: Text { text: root.info; color: #c8d1dc; wrap: word-wrap; overflow: elide; }
+                if root.show-settings: VerticalLayout { spacing: 8px;
+                    CheckBox { text: "Autoplay animations"; checked <=> root.autoplay; toggled => { root.setting("autoplay",self.checked); } }
+                    CheckBox { text: "Honor animation loops (off: play once)"; checked <=> root.looping; toggled => { root.setting("looping",self.checked); } }
+                    CheckBox { text: "Natural filename sorting"; checked <=> root.natural-sort; toggled => { root.setting("natural",self.checked); } }
+                    CheckBox { text: "Auto-hide controls in fullscreen"; checked <=> root.auto-hide; toggled => { root.setting("hide",self.checked); } }
+                    CheckBox { text: "Mouse wheel zooms (off: navigate)"; checked <=> root.wheel-zoom; toggled => { root.setting("wheel",self.checked); } }
+                    CheckBox { text: "Sharp pixels"; checked <=> root.pixelated; toggled => { root.setting("pixels",self.checked); } }
+                    Tool { label: "Toggle light / dark background"; clicked => { root.setting("background",!root.light-background); } }
+                    HorizontalLayout { Text { text: "Default fit"; color: #c8d1dc; vertical-alignment: center; } Tool { label: "Window"; clicked => { root.setting("fit-window",true); } } Tool { label: "Width"; clicked => { root.setting("fit-width",true); } } Tool { label: "100%"; clicked => { root.setting("fit-actual",true); } } }
+                }
+                Tool { label: "Close"; clicked => { root.show-info=false; root.show-settings=false; } }
+            }
+        }
+    }
+}
