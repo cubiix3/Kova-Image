@@ -1,0 +1,20 @@
+name: Focused feature proposal
+description: Suggest an improvement to the local viewer workflow.
+body:
+  - type: markdown
+    attributes:
+      value: "Keep proposals focused on opening and viewing local media. Kova Image is not an editor, library manager or streaming service."
+  - type: textarea
+    id: problem
+    attributes:
+      label: What viewing problem would this solve?
+      description: Describe a concrete workflow and what makes it difficult today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the smallest useful change, alternatives and any known dependency or performance costs.
+    validations:
+      required: true

@@ -1,28 +1,50 @@
 <p align="center">
-  <img src="assets/kova.svg" width="88" height="88" alt="Kova logo">
+  <img src="docs/images/banner.svg" width="100%" alt="Kova Image - Open a file. See it immediately. Move on.">
 </p>
 
-<h1 align="center">Kova Image</h1>
+# Kova Image
+
 <p align="center">A fast, lightweight local image and video viewer for Windows.</p>
 
 <p align="center">
   <a href="https://github.com/cubiix3/Kova-Image/actions/workflows/ci.yml"><img src="https://github.com/cubiix3/Kova-Image/actions/workflows/ci.yml/badge.svg" alt="Windows CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue" alt="MIT or Apache-2.0"></a>
+  <a href="https://github.com/cubiix3/Kova-Image/actions/workflows/security.yml"><img src="https://github.com/cubiix3/Kova-Image/actions/workflows/security.yml/badge.svg" alt="Dependency audit"></a>
+  <a href="#current-status"><img src="https://img.shields.io/badge/status-early_development-253e4b" alt="Early Development"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT_OR_Apache--2.0-253e4b" alt="MIT OR Apache-2.0"></a>
 </p>
 
-> **Status: Early Development — 0.1.0.** The initial viewer is implemented.
-> There is no stable release or installer yet. Build from source to try it.
-> See [verification and limitations](docs/VALIDATION.md).
+<p align="center">
+  <a href="#screenshots">Screenshots</a> &middot;
+  <a href="#installation--running">Get started</a> &middot;
+  <a href="#supported-formats">Formats</a> &middot;
+  <a href="docs/README.md">Documentation</a> &middot;
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
 
-<p align="center"><a href="https://slint.dev"><img src="assets/made-with-slint.png" width="150" alt="Made with Slint"></a></p>
+> **Early Development - 0.1.0.** The viewer is usable for evaluation, with known
+> limitations. No stable release or installer is published. Build from source
+> to try it; see the [validation record](docs/VALIDATION.md).
 
 ## What is Kova Image?
 
-A standalone, native Windows image, animation and local video viewer in the Kova product
-family. Built with **Rust, Slint and official Windows APIs**. Open a file,
+A standalone, native Windows image, animation and local video viewer in the
+[Kova product family](https://github.com/cubiix3/Kova-File-Manager). Built with **Rust, Slint and official Windows APIs**. Open a file,
 see it, and move through its folder. Kova Image is a viewer, not an editor.
 
-![Kova Image running with an original generated test image](docs/images/viewer.png)
+## Screenshots
+
+<p align="center">
+  <img src="docs/images/empty.png" width="960" alt="Kova Image's dark start screen, compact titlebar, Open file button and grouped bottom controls">
+  <br><sub>A compact workspace. Your content takes the center.</sub>
+</p>
+
+| Images and animations | Local video |
+| :---: | :---: |
+| [![Image view with navigation, zoom and fit controls](docs/images/viewer.png)](docs/images/viewer.png) | [![Video playback with timeline, time and volume controls](docs/images/video.png)](docs/images/video.png) |
+| Fit, zoom, pan and view transforms | Play, pause, seek and volume |
+
+These are captures from the running application, using original synthetic test
+files. No mock UI or personal media. Click an image to view it at full size.
 
 ## Goals
 
@@ -34,25 +56,20 @@ see it, and move through its folder. Kova Image is a viewer, not an editor.
 ## Current status
 
 Windows 10/11 x64 is the target. The 0.1.0 source provides the viewer workflow,
-animation, native video, mixed-media folder navigation and Windows actions below. This is a first
-implementation, with no stability or performance guarantees. Hardware diversity,
+animation, native video, mixed-media folder navigation and Windows actions
+below. This is a first implementation, with no stability or performance guarantees. Hardware diversity,
 color management, accessibility and hostile-file coverage need more validation.
 
 ## Features
 
-- Open by CLI path, native file picker, or file drop.
-- Previous/next/first/last, with natural sorting in the current folder.
-- Fit, fit width, 100%, cursor-centered wheel zoom and drag to pan.
-- Fullscreen with auto-hiding controls; rotation and horizontal/vertical flips.
-- GIF, animated WebP and APNG playback with pause and bounded frame storage.
-- Local video with play/pause, timeline seeking, time, volume/mute and optional loop.
-- Copy the original decoded image/current animation frame or Unicode path.
-- Move a loaded file to the Windows Recycle Bin, reveal it in Explorer, or
-  open the native **Open with** dialog.
-- Small information and settings panels, local settings and sharp-pixel mode.
-- Opt-in **Open with** registration and a link to Windows Default Apps Settings.
-- Asynchronous decoding, latest-request priority, stale-result rejection and
-  next/previous preloading through a bounded, weighted LRU cache.
+| Area | Implemented behavior |
+| --- | --- |
+| Open and navigate | CLI path, native picker, file drop, natural sorting, previous/next/first/last and mixed-media folders |
+| Images | Fit, fit width, 100%, cursor-centered zoom, pan, rotation and horizontal/vertical flip |
+| Animation | GIF, animated WebP and APNG, with pause, timing, loops and bounded frame storage |
+| Video | Play/pause, timeline, current time/duration, mute/volume and optional loop |
+| Interface | Dark Kova surfaces, grouped controls, visible keyboard focus and fullscreen auto-hide |
+| Windows | Copy image or path, Recycle Bin, Show in Explorer, Open with and opt-in app registration |
 
 Rotation and flips affect the view only. Copy Image copies the decoded frame
 before view transforms. Original files are never rewritten. Each launch opens
@@ -70,14 +87,14 @@ an independent window; there is no single-instance IPC service.
 | BMP | Still image |
 | TIFF | First image/page |
 | ICO | Decoder-selected icon image |
-| MP4 / M4V, MOV, MKV | Windows Media Foundation; tested with H.264 + AAC |
+| MP4 / M4V, MOV, MKV | Windows codecs; H.264/AAC tested in MP4, MOV and MKV |
 | WebM | Windows codec dependent; VP8/VP9 samples fail gracefully on the test machine without a matching decoder |
 | AVIF | Planned; no decoder shipped yet |
 | HEIC/HEIF, JPEG XL, SVG, RAW | Not supported; evaluation remains on the roadmap |
 
-File contents determine the decoder. Extensions are used only to filter folder
-navigation and the file picker. An explicitly opened supported image can have
-an unusual extension. Video containers require a recognized header and a local
+Decoders validate file contents. Extensions filter folder navigation and the
+file picker, and suggest video handling. An explicitly opened supported image
+can have an unusual extension. Video containers require a recognized header and a local
 drive path. Container support does not guarantee every codec/profile will play.
 No codec downloads, streaming, DRM, subtitles or audio-only player are provided.
 See [video architecture and limits](docs/VIDEO.md). SVG is never rendered.
@@ -89,6 +106,7 @@ There is no published installer or stable binary. After building:
 ```powershell
 .\target\release\kova-image.exe
 .\target\release\kova-image.exe "C:\Pictures\example.png"
+.\target\release\kova-image.exe "C:\Videos\example.mp4"
 .\target\release\kova-image.exe --software "C:\Pictures\example.png"
 ```
 
@@ -111,7 +129,7 @@ including a Windows SDK. The pinned toolchain is Rust 1.95.0 (MSVC).
 ```powershell
 git clone https://github.com/cubiix3/Kova-Image.git
 cd Kova-Image
-.\scripts\cargo-msvc.ps1 build --locked --release --bin kova-image
+.\scripts\cargo-msvc.ps1 -CargoArgs @('build', '--locked', '--release', '--bin', 'kova-image')
 ```
 
 From a Visual Studio Developer PowerShell:
@@ -157,33 +175,23 @@ Settings live in `%LOCALAPPDATA%\Kova Image\settings.conf`.
 
 ## Performance philosophy
 
-The [interface design system](docs/DESIGN.md) keeps the image central, with
-grouped controls, explicit keyboard focus and restrained fullscreen overlays.
+The current image takes priority over preloads. A single decode worker replaces
+pending requests, checks cancellation where codecs permit it and preloads only
+the next/previous image. Folder scanning and Shell operations stay off the UI thread.
 
-No splash screen, database, thumbnails for every file or startup indexing.
-The current image wins over preloads. A single decode worker replaces pending
-requests, checks cancellation on file reads and frame boundaries, and preloads
-only the next and previous image. Codecs cannot all be interrupted during their
-internal CPU work. Folder scanning and Shell operations stay off the UI thread.
+The weighted LRU retains at most **192 MiB of pixel data and 32 entries**.
+Displayed pixels, decoder scratch space and GPU textures cost additional memory;
+this is not a process-RAM cap. Animated images are currently collected within a
+bounded budget before playback. Scaled decoding and streaming animation are future work.
 
-Decoded frames share storage with the cache. The cache retains at most 192 MiB
-of pixel data and 32 entries. A displayed image, decoder scratch space, Slint
-frame upload and GPU textures have additional costs; this is not a process-RAM
-cap. Large images and animations may be rejected before exhausting these budgets.
+Video initializes its own worker on demand. Media Foundation owns audio/video
+timing; a bounded mailbox retains the latest pending frame. Pixel-buffer
+preparation runs on the worker, with D3D readback and Slint upload as explicit
+costs. Presentation is capped at **1920 x 1080**. Minimizing pauses video and audio.
 
-Current decoders produce full-resolution images. Scaled decode and streaming
-animation are future work. Animations currently decode into a bounded collection
-before playback. Timers sleep between frames and stop when paused/minimized.
-See [reproducible measurements](docs/PERFORMANCE.md); no benchmark superiority
-is claimed.
-
-Video initializes a separate bounded worker only on demand. Media Foundation
-owns audio/video timing; the app retains only the latest pending video frame.
-Presentation is capped at 1920 x 1080 with CPU readback and Slint upload; native
-codec and GPU memory are additional costs. Minimizing pauses video and audio.
-
-Measured startup, executable size and video CPU/RAM are recorded in
-[VIDEO_MEASUREMENTS.md](docs/VIDEO_MEASUREMENTS.md).
+[Measurement protocol](docs/PERFORMANCE.md) -
+[Recorded startup, video CPU and RAM](docs/VIDEO_MEASUREMENTS.md) -
+[Interface design](docs/DESIGN.md)
 
 ## Security philosophy
 
@@ -223,3 +231,5 @@ See [LICENSE](LICENSE), [LICENSE-MIT](LICENSE-MIT), and
 
 Made with [Slint](https://slint.dev). See
 [third-party notices](THIRD_PARTY_NOTICES.md) for licensing and Kova asset provenance.
+
+<p align="center"><a href="https://slint.dev"><img src="assets/made-with-slint.png" width="150" alt="Made with Slint"></a></p>

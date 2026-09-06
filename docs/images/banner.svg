@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="256" viewBox="0 0 1280 256" role="img" aria-labelledby="title desc">
+  <title id="title">Kova Image</title>
+  <desc id="desc">Open a file. See it immediately. Move on. A local image and video viewer for Windows.</desc>
+  <rect width="1280" height="256" rx="24" fill="#101214"/>
+  <g transform="translate(62 62) scale(.5)">
+    <rect x="8" y="8" width="240" height="240" rx="52" fill="#182630"/>
+    <path d="M62 58H98V119L157 58H202L134 127L207 198H158L98 139V198H62Z" fill="#86d5f4"/>
+    <path d="M134 127L207 198H158L98 139Z" fill="#499dcc"/>
+  </g>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="222" y="119" font-size="52" font-weight="600" fill="#f0f2f5">Kova Image</text>
+    <text x="224" y="160" font-size="22" fill="#b2bac4">Open a file. See it immediately. Move on.</text>
+    <text x="1176" y="216" text-anchor="end" font-size="15" letter-spacing="2" fill="#8d98a5">LOCAL · WINDOWS · OPEN SOURCE</text>
+  </g>
+  <g fill="none" stroke-width="2">
+    <rect x="992" y="52" width="184" height="126" rx="16" stroke="#363d45"/>
+    <path d="m1016 150 41-44 30 27 23-22 42 39" stroke="#86d5f4" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="1127" cy="83" r="10" stroke="#86d5f4"/>
+  </g>
+</svg>

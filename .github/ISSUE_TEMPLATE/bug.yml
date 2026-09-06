@@ -14,6 +14,6 @@ body:
     id: reproduce
     attributes:
       label: Steps, expected behavior and actual behavior
-      description: Include the image format and dimensions when relevant. Do not attach personal or sensitive files.
+      description: Include the image format/dimensions or video container/codec, renderer and reproduction steps when relevant. Do not attach personal or sensitive files.
     validations:
       required: true
