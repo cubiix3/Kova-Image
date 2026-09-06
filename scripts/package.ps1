@@ -43,10 +43,10 @@ if ($missing.Count -gt 0) {
     throw "License texts missing for $($missing.Count) crates. Review the staging folder before distributing; no ZIP produced."
 }
 @'
-Kova Image 0.1.0 — Early Development
+Kova Image 0.1.0 - Early Development
 
 Windows 10/11 x64. Run kova-image.exe, or drop an image into its window.
-The Microsoft Visual C++ 2015–2022 Redistributable (x64) may be required.
+The Microsoft Visual C++ 2015-2022 Redistributable (x64) may be required.
 This package is unsigned and experimental. No installer or associations are applied.
 If hardware rendering fails, run kova-image.exe --software.
 No stable release is created by this script.

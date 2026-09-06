@@ -59,10 +59,15 @@ impl App {
         }
     }
     pub(super) fn geometry(&self) -> ((f32, f32), (f32, f32)) {
+        let dpi = self
+            .ui
+            .upgrade()
+            .map(|ui| ui.window().scale_factor())
+            .unwrap_or(1.0);
         let image = self
             .image
             .as_ref()
-            .map(|i| (i.width as f32, i.height as f32))
+            .map(|i| kova_image::viewer::logical_image_size(i.width, i.height, dpi))
             .unwrap_or((1., 1.));
         let viewport = self
             .ui

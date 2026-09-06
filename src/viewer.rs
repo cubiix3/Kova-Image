@@ -6,6 +6,15 @@ pub enum Fit {
     Actual,
     Free,
 }
+/// At 100%, one source pixel occupies one physical display pixel, even at 150% DPI.
+pub fn logical_image_size(width: u32, height: u32, dpi: f32) -> (f32, f32) {
+    let dpi = if dpi.is_finite() && dpi > 0.0 {
+        dpi
+    } else {
+        1.0
+    };
+    (width as f32 / dpi, height as f32 / dpi)
+}
 #[derive(Debug, Default)]
 pub struct View {
     pub fit: Fit,
@@ -63,6 +72,11 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn actual_size_respects_display_scale() {
+        assert_eq!(logical_image_size(1200, 800, 2.0), (600.0, 400.0));
+        assert_eq!(logical_image_size(1200, 800, f32::NAN), (1200.0, 800.0));
+    }
     #[test]
     fn cursor_anchor_is_stable() {
         let mut v = View::default();

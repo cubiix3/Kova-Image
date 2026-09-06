@@ -328,11 +328,12 @@ fn latest_worker_request_and_recovery() {
         if let Event::Image {
             id, path, result, ..
         } = event
-            && id == latest {
-                assert_eq!(path, good);
-                assert!(result.is_ok());
-                break;
-            }
+            && id == latest
+        {
+            assert_eq!(path, good);
+            assert!(result.is_ok());
+            break;
+        }
     }
 }
 
