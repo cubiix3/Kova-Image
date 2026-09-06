@@ -3,11 +3,12 @@ param(
     [Parameter(Mandatory=$true)][string]$Image,
     [int]$Runs = 5,
     [string]$OutputDirectory = "artifacts/measurements",
-    [switch]$Software
+    [switch]$Software,
+    [string]$Executable
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root "target/release/kova-image.exe"
+$exe = if ($Executable) { (Resolve-Path -LiteralPath $Executable).Path } else { Join-Path $root "target/release/kova-image.exe" }
 if (!(Test-Path -LiteralPath $exe)) { throw "Build the release executable first." }
 $imagePath = (Resolve-Path -LiteralPath $Image).Path
 $null = New-Item -ItemType Directory -Force -Path $OutputDirectory

@@ -63,6 +63,13 @@ It covers navigation, natural order, fit/zoom, transforms, fullscreen, animation
 information UI and small-window resize. This is a local test, not an unattended
 desktop test on GitHub's hosted runner.
 
+The redesigned interface also checks Tab/Space activation, active fit modes,
+fullscreen auto-hide/wake, popup dismissal without leaving fullscreen, and the
+640 × 420 minimum layout. The harness keeps its window in the background and
+uses only its own HWND. Additional visual states can be captured with
+`--state=empty`, `--state=missing`, `--state=corrupted` and `--state=long-name`.
+Each checks the expected state and keyboard focus at minimum size.
+
 Pass `--software` to repeat GUI checks on the fallback. Pass `--clipboard` only
 when willing to replace the clipboard with a generated fixture; that opt-in
 tests native Copy Path and Copy Image without reading previous clipboard data.

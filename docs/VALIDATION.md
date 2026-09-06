@@ -1,4 +1,4 @@
-# Initial validation
+# Validation record
 
 Validated locally on Windows 11 Pro (build 26200), x64, Rust 1.95.0. The Windows
 GitHub CI has also completed successfully, including the release executable.
@@ -45,6 +45,20 @@ The local portable-package script produces an unsigned ZIP and SHA-256, with
 upstream license texts. A first packaging attempt identified missing upstream
 workspace license files; version-specific source texts now supplement those
 archives. ZIP-incompatible Cargo source timestamps are normalized in staging.
+
+## Interface refinement
+
+The redesigned Kova chrome was checked with real Slint renderer captures using
+the hardware and software paths. The local GUI harness verifies active view
+modes, Tab/Space control activation, image focus restoration, fullscreen
+auto-hide/wake, Escape dismissing a popup while preserving fullscreen, outside
+click dismissal and the 640 × 420 minimum window. Empty, missing, corrupted and
+long-filename states were also captured and visually reviewed.
+
+Menus align labels and shortcuts separately; short windows scroll popovers.
+Settings and image information share the same panel surfaces. Paths in debug
+captures are local test fixtures; only the path-free viewer and empty-state
+captures are published in documentation. See [DESIGN.md](DESIGN.md).
 
 ## Remaining validation and implementation gaps
 

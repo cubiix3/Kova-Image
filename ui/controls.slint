@@ -1,0 +1,127 @@
+import { Theme, Interaction } from "theme.slint";
+
+export component Tool inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    in property <bool> has-icon: false;
+    in property <string> hint: root.label;
+    in property <bool> enabled: true;
+    in property <bool> active: false;
+    in property <bool> checkable: false;
+    in property <bool> primary: false;
+    in property <bool> danger: false;
+    in property <bool> filled: false;
+    in property <bool> menu: false;
+    in property <string> shortcut;
+    callback clicked;
+    out property <bool> hovered: touch.has-hover;
+    out property <bool> focused: focus.has-focus;
+    forward-focus: focus;
+    property <int> focus-id;
+    init => { root.focus-id = Interaction.next-focus-id; Interaction.next-focus-id += 1; }
+    height: Theme.control-height;
+    min-width: root.menu ? 0px : root.label == "" ? 36px : max(36px, label-text.preferred-width + (root.has-icon ? 50px : 24px));
+    preferred-width: root.min-width;
+    horizontal-stretch: root.menu ? 1 : 0;
+    border-radius: Theme.radius;
+    background: !root.enabled ? transparent : touch.pressed || root.key-down ? Theme.pressed : touch.has-hover ? (root.danger ? #733239 : Theme.hover) : root.primary ? Theme.selected : root.active ? Theme.selected : root.filled ? Theme.raised : transparent;
+    border-width: focus.has-focus && Interaction.keyboard ? 2px : root.primary ? 1px : 0px;
+    border-color: focus.has-focus && Interaction.keyboard ? Theme.accent : #426272;
+    property <bool> key-down;
+    property <color> foreground: !root.enabled ? Theme.disabled : root.primary || root.active ? Theme.accent : root.danger ? Theme.danger : Theme.text;
+    accessible-role: button;
+    accessible-label: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.active;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Rectangle {
+      visible: !root.menu;
+      HorizontalLayout {
+        padding-left: root.label == "" ? 9px : 12px; padding-right: root.label == "" ? 9px : 12px; spacing: 8px;
+        alignment: root.menu ? start : center;
+        if root.has-icon: Rectangle { width: 18px; Image { source: root.icon; colorize: root.foreground; width: 18px; height: 18px; y: (parent.height - self.height)/2; } }
+        label-text := Text { visible: root.label != ""; text: root.label; color: root.foreground; font-size: 13px; font-weight: root.active || root.primary ? 600 : 400; vertical-alignment: center; horizontal-stretch: root.menu ? 1 : 0; overflow: elide; }
+        if root.shortcut != "": Text { text: root.shortcut; color: root.enabled ? Theme.muted : Theme.disabled; font-size: 12px; vertical-alignment: center; horizontal-stretch: 0; }
+      }
+    }
+    if root.menu: Rectangle {
+        if root.has-icon: Image { source: root.icon; colorize: root.foreground; width: 18px; height: 18px; x: 12px; y: (parent.height - self.height)/2; }
+        Text { x: root.has-icon ? 38px : 12px; width: parent.width - self.x - key-label.width - 24px; text: root.label; color: root.foreground; font-size: 13px; vertical-alignment: center; overflow: elide; }
+        key-label := Text { x: parent.width - self.width - 12px; width: self.preferred-width; text: root.shortcut; color: root.enabled ? Theme.muted : Theme.disabled; font-size: 12px; vertical-alignment: center; }
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        focus-gained(reason) => { Interaction.focused-control = root.focus-id; Interaction.hint = root.hint; }
+        focus-lost(reason) => { if Interaction.focused-control == root.focus-id { Interaction.focused-control = 0; } root.key-down = false; if !touch.has-hover { Interaction.hint = ""; } }
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { root.key-down = true; return accept; }
+            reject
+        }
+        key-released(event) => {
+            if (event.text == " " || event.text == "\n") && root.key-down { root.key-down = false; root.clicked(); return accept; }
+            reject
+        }
+        touch := TouchArea {
+            enabled: root.enabled;
+            changed has-hover => { if self.has-hover { Interaction.hint = root.hint; } else if !(focus.has-focus && Interaction.keyboard) { Interaction.hint = ""; } }
+            clicked => { focus.focus(); root.clicked(); }
+        }
+    }
+}
+
+export component Rule inherits Rectangle {
+    x: 0px; y: 0px;
+    height: 1px;
+    background: Theme.divider;
+}
+
+export component Divider inherits Rectangle {
+    width: 1px;
+    Rectangle { width: 1px; height: 22px; y: (parent.height - self.height)/2; background: Theme.stroke; }
+}
+
+export component Group inherits Rectangle {
+    height: 40px;
+    border-radius: 9px;
+    background: Theme.raised;
+    HorizontalLayout { padding: 2px; spacing: 2px; @children }
+}
+
+export component ToggleRow inherits Rectangle {
+    in property <string> label;
+    in-out property <bool> checked;
+    callback toggled(bool);
+    height: 36px;
+    border-radius: Theme.radius;
+    background: touch.has-hover ? Theme.hover : transparent;
+    border-width: focus.has-focus && Interaction.keyboard ? 2px : 0px;
+    border-color: Theme.accent;
+    accessible-role: checkbox;
+    accessible-label: root.label;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.checked = !root.checked; root.toggled(root.checked); }
+    forward-focus: focus;
+    property <int> focus-id;
+    init => { root.focus-id = Interaction.next-focus-id; Interaction.next-focus-id += 1; }
+    HorizontalLayout {
+        padding-left: 10px; padding-right: 10px; spacing: 20px;
+        Text { text: root.label; color: Theme.secondary; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+        Rectangle {
+            width: 30px;
+            Rectangle {
+                width: 30px; height: 18px; y: (parent.height - self.height)/2; border-radius: 9px;
+                background: root.checked ? Theme.accent : Theme.stroke;
+                Rectangle { width: 12px; height: 12px; y: 3px; x: root.checked ? 15px : 3px; border-radius: 6px; background: root.checked ? #14252e : Theme.secondary; }
+            }
+        }
+    }
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => { Interaction.focused-control = root.focus-id; }
+        focus-lost(reason) => { if Interaction.focused-control == root.focus-id { Interaction.focused-control = 0; } }
+        key-pressed(event) => { if event.text == " " || event.text == "\n" { root.checked = !root.checked; root.toggled(root.checked); return accept; } reject }
+        touch := TouchArea { clicked => { focus.focus(); root.checked = !root.checked; root.toggled(root.checked); } }
+    }
+}

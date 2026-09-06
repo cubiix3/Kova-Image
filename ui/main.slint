@@ -1,21 +1,9 @@
-import { CheckBox, Palette } from "std-widgets.slint";
+import { Palette, ScrollView } from "std-widgets.slint";
+import { Theme, Interaction } from "theme.slint";
+import { Tool, Rule, Divider, Group, ToggleRow } from "controls.slint";
+import { Icons } from "icons.slint";
 
-component Tool inherits Rectangle {
-    in property <string> label;
-    in property <bool> accent: false;
-    callback clicked;
-    height: 32px;
-    min-width: max(36px, text.preferred-width + 22px);
-    preferred-width: max(36px, text.preferred-width + 22px);
-    horizontal-stretch: 0;
-    border-radius: 6px;
-    background: touch.has-hover ? #2a3b49 : root.accent ? #243c4c : transparent;
-    accessible-role: button;
-    accessible-label: label;
-    accessible-action-default => { root.clicked(); }
-    text := Text { text: root.label; color: root.accent ? #86d5f4 : #c8d1dc; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
-    touch := TouchArea { clicked => { root.clicked(); } }
-}
+export struct InfoField { label: string, value: string }
 
 export component ViewerWindow inherits Window {
     init => { Palette.color-scheme = ColorScheme.dark; }
@@ -23,7 +11,7 @@ export component ViewerWindow inherits Window {
     icon: @image-url("../assets/kova.svg");
     preferred-width: 1080px; preferred-height: 740px; min-width: 640px; min-height: 420px;
     no-frame: true;
-    background: #0d1117;
+    background: Theme.canvas;
     default-font-family: "Segoe UI";
     default-font-size: 13px;
     in property <image> picture;
@@ -31,7 +19,7 @@ export component ViewerWindow inherits Window {
     in property <bool> loading: false;
     in property <string> filename: "Kova Image";
     in property <string> status;
-    in property <string> info;
+    in property <[InfoField]> info-fields;
     in property <string> zoom-label: "Fit";
     in property <float> display-width;
     in property <float> display-height;
@@ -57,16 +45,49 @@ export component ViewerWindow inherits Window {
     out property <float> viewport-width: canvas.width / 1px;
     out property <float> viewport-height: canvas.height / 1px;
     out property <float> viewport-top: canvas.y / 1px;
+    out property <float> viewport-left: canvas.x / 1px;
     callback command(string);
     callback setting(string,bool);
     callback drag-window;
 
+    in property <string> image-detail;
+    in property <string> error-title;
+    in property <string> error-detail;
+    in property <string> position-label;
+    in property <bool> can-previous;
+    in property <bool> can-next;
+    in property <bool> fit-active: true;
+    in property <bool> actual-active;
+    in property <string> default-fit: "window";
+    in-out property <bool> keyboard-mode <=> Interaction.keyboard;
+    out property <bool> control-focused: Interaction.focused-control != 0 && Interaction.keyboard;
+    public function focus-viewer() {
+        canvas-focus.focus();
+        Interaction.focused-control = 0;
+        Interaction.hint = "";
+    }
+    out property <bool> chrome-hovered: header-touch.has-hover || bar-touch.has-hover;
+    out property <float> chrome-top: Theme.header-height / 1px;
+    out property <float> chrome-bottom: Theme.bar-height / 1px + (root.fullscreen ? 12 : 0);
+    property <bool> modal: root.show-info || root.show-settings;
+    changed modal => { if !root.modal { root.focus-viewer(); } }
+    changed show-more => { if !root.show-more && !root.modal { root.focus-viewer(); } }
+    property <bool> tools-enabled: root.chrome && !root.modal && !root.show-more;
+    property <bool> image-tools: root.tools-enabled && root.has-image && !root.loading;
+    property <bool> compact: root.width < 820px;
+
     canvas := Rectangle {
-        y: root.fullscreen ? 0px : 44px;
-        height: root.height - (root.fullscreen ? 0px : 96px);
-        width: root.width;
-        background: root.light-background ? #cfd3d8 : #0d1117;
+        x: root.fullscreen ? 0px : 16px;
+        y: root.fullscreen ? 0px : Theme.header-height + 16px;
+        height: root.height - (root.fullscreen ? 0px : Theme.header-height + Theme.bar-height + 32px);
+        width: root.width - (root.fullscreen ? 0px : 32px);
+        background: root.light-background && root.has-image ? #cfd3d8 : Theme.canvas;
         clip: true;
+        canvas-focus := FocusScope {
+            enabled: !root.modal && !root.show-more;
+            focus-on-tab-navigation: false;
+            focus-gained(reason) => { Interaction.focused-control = 0; Interaction.hint = ""; }
+        }
         if root.has-image: Image {
             source: root.picture;
             x: (parent.width - self.width)/2 + root.pan-x * 1px;
@@ -80,94 +101,203 @@ export component ViewerWindow inherits Window {
             image-rendering: root.pixelated ? ImageRendering.pixelated : ImageRendering.smooth;
             accessible-label: root.filename;
         }
-        if !root.has-image: VerticalLayout {
-            alignment: center; spacing: 14px;
-            Rectangle { height: 76px; Image { source: @image-url("../assets/kova.svg"); width: 64px; height: 64px; x: (parent.width - self.width)/2; } }
-            Text { text: "Kova Image"; color: #e5edf5; font-size: 28px; font-weight: 600; horizontal-alignment: center; }
-            Text { text: "Open an image. See it immediately. Move on."; color: #8996a5; horizontal-alignment: center; }
-            HorizontalLayout { alignment: center; padding-top: 12px; Tool { label: "Open image"; accent: true; clicked => { root.command("open"); } } }
-            Text { text: "Drop an image here  ·  Ctrl+O"; color: #667585; font-size: 12px; horizontal-alignment: center; }
+        if !root.has-image: Rectangle {
+            width: min(460px, parent.width - 32px); height: min(262px, parent.height);
+            x: (parent.width - self.width)/2; y: (parent.height - self.height)/2;
+            VerticalLayout {
+                spacing: 12px; alignment: center;
+                Rectangle {
+                    height: 52px;
+                    Rectangle {
+                        width: 48px; height: 48px; x: (parent.width - self.width)/2;
+                        border-radius: 12px; background: Theme.raised;
+                        Image { source: root.error-title != "" ? Icons.error : Icons.image; colorize: root.error-title != "" ? Theme.danger : Theme.accent; width: 24px; height: 24px; x: 12px; y: 12px; }
+                    }
+                }
+                Text { text: root.loading ? "Opening image" : root.error-title != "" ? root.error-title : "Open an image"; color: Theme.text; font-size: 22px; font-weight: 600; horizontal-alignment: center; wrap: word-wrap; }
+                Text { text: root.loading ? "Your image will appear here." : root.error-title != "" ? root.error-detail : "Drop a file here, or open an image to get started."; color: Theme.secondary; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; overflow: elide; max-height: 64px; }
+                if !root.loading: HorizontalLayout {
+                    alignment: center; padding-top: 8px;
+                    Tool { label: root.error-title != "" ? "Open another image" : "Open image"; icon: Icons.open; has-icon: true; primary: true; enabled: root.tools-enabled; hint: "Open image  ·  Ctrl+O"; clicked => { root.command("open"); } }
+                }
+                if !root.loading: Text { text: root.error-title != "" ? "You can still navigate to the next image." : "JPG, PNG, WebP, GIF and more  ·  Ctrl+O"; color: Theme.muted; font-size: 12px; horizontal-alignment: center; }
+            }
         }
     }
-    if root.chrome: Rectangle {
-        x: 0px; y: 0px; height: 44px; background: #141c25;
-        TouchArea { pointer-event(event) => { if event.kind == PointerEventKind.down && event.button == PointerEventButton.left { root.drag-window(); } } }
+
+    // Chrome alone fades; the image is never put into an opacity layer.
+    header := Rectangle {
+        // Reuse static chrome during animation playback instead of submitting
+        // every icon and label again with each image frame. Still images need no layer.
+        cache-rendering-hint: root.animated;
+        x: 0px; y: 0px; width: root.width; height: Theme.header-height;
+        background: Theme.surface; opacity: root.chrome ? 1 : 0;
+        visible: self.opacity > 0;
+        animate opacity { duration: 120ms; }
+        header-touch := TouchArea {
+            enabled: root.tools-enabled;
+            pointer-event(event) => { if event.kind == PointerEventKind.down && event.button == PointerEventButton.left { root.drag-window(); } }
+            double-clicked => { root.command("maximize"); }
+        }
+        Rule { y: parent.height - 1px; }
         HorizontalLayout {
-            padding-left: 12px; padding-right: 6px; spacing: 8px;
-            Image { source: @image-url("../assets/kova.svg"); width: 25px; height: 25px; vertical-alignment: center; }
-            Text { text: "Kova Image"; color: #e2eaf2; font-weight: 600; width: 90px; vertical-alignment: center; }
-            Text { text: root.filename == "Kova Image" ? "" : root.filename; color: #8996a5; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
-            Tool { label: "Open"; clicked => { root.command("open"); } }
-            Tool { label: "−"; clicked => { root.command("minimize"); } }
-            Tool { label: "□"; clicked => { root.command("maximize"); } }
-            Tool { label: "×"; clicked => { root.command("close"); } }
+            padding-left: 18px; spacing: 0px;
+            HorizontalLayout {
+                width: root.compact ? 132px : 154px; spacing: 10px; alignment: start;
+                Rectangle { width: 28px; Image { source: @image-url("../assets/kova.svg"); width: 28px; height: 28px; y: (parent.height - self.height)/2; } }
+                Text { text: "Kova Image"; color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+            }
+            Divider { }
+            VerticalLayout {
+                padding-left: 18px; padding-right: 14px; alignment: center; spacing: 2px; horizontal-stretch: 1;
+                Text { text: root.filename == "Kova Image" ? "Image viewer" : root.filename; color: root.has-image ? Theme.text : Theme.secondary; font-size: 13px; overflow: elide; }
+                Text { text: root.loading ? "Opening image…" : root.error-title != "" ? root.error-title : root.image-detail != "" ? root.image-detail : "Local files. Nothing else."; color: Theme.muted; font-size: 11px; overflow: elide; }
+            }
+            VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { label: root.compact ? "" : "Open"; icon: Icons.open; has-icon: true; filled: true; hint: "Open image  ·  Ctrl+O"; enabled: root.tools-enabled; clicked => { root.command("open"); } } }
+            Rectangle { width: 12px; }
+            Tool { icon: Icons.minimize; has-icon: true; hint: "Minimize"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; enabled: root.tools-enabled; clicked => { root.command("minimize"); } }
+            Tool { icon: Icons.maximize; has-icon: true; hint: "Maximize / restore"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; enabled: root.tools-enabled; clicked => { root.command("maximize"); } }
+            Tool { icon: Icons.close; has-icon: true; hint: "Close window"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; danger: true; enabled: root.tools-enabled; clicked => { root.command("close"); } }
         }
     }
-    if root.chrome: Rectangle {
-        y: root.height - 52px; height: 52px; background: #141c25;
+
+    bar := Rectangle {
+        cache-rendering-hint: root.animated;
+        x: root.fullscreen ? max(12px, (root.width - 1000px)/2) : 0px;
+        width: root.fullscreen ? min(1000px, root.width - 24px) : root.width;
+        y: root.height - Theme.bar-height - (root.fullscreen ? 12px : 0px);
+        height: Theme.bar-height; border-radius: root.fullscreen ? 12px : 0px;
+        background: Theme.surface; opacity: root.chrome ? 1 : 0; visible: self.opacity > 0;
+        animate opacity { duration: 120ms; }
+        bar-touch := TouchArea { enabled: root.tools-enabled; }
+        if !root.fullscreen: Rule { }
         HorizontalLayout {
-            padding: 10px; spacing: 5px;
-            Tool { label: "‹"; clicked => { root.command("previous"); } }
-            Tool { label: "›"; clicked => { root.command("next"); } }
-            Rectangle { width: 10px; }
-            Tool { label: "−"; clicked => { root.command("out"); } }
-            Tool { label: root.zoom-label; clicked => { root.command("actual"); } }
-            Tool { label: "+"; clicked => { root.command("in"); } }
-            Tool { label: "Fit"; clicked => { root.command("fit"); } }
-            Tool { label: "100%"; clicked => { root.command("actual"); } }
-            Tool { label: "Rotate"; clicked => { root.command("right"); } }
-            if root.animated: Tool { label: root.paused ? "Play" : "Pause"; clicked => { root.command("pause"); } }
+            padding: 16px; spacing: root.compact ? 6px : 12px;
+            Group {
+                horizontal-stretch: 0;
+                Tool { icon: Icons.previous; has-icon: true; hint: "Previous image  ·  Left"; enabled: root.tools-enabled && root.can-previous; clicked => { root.command("previous"); } }
+                Text { text: root.position-label == "" ? "—" : root.position-label; color: Theme.secondary; font-size: 12px; width: root.compact ? 44px : 56px; overflow: elide; horizontal-alignment: center; vertical-alignment: center; }
+                Tool { icon: Icons.next; has-icon: true; hint: "Next image  ·  Right"; enabled: root.tools-enabled && root.can-next; clicked => { root.command("next"); } }
+            }
             Rectangle { horizontal-stretch: 1; }
-            Tool { label: "Fullscreen"; clicked => { root.command("fullscreen"); } }
-            Tool { label: "More"; clicked => { root.show-more = !root.show-more; } }
+            Group {
+                horizontal-stretch: 0;
+                Tool { icon: Icons.minus; has-icon: true; hint: "Zoom out  ·  -"; enabled: root.image-tools; clicked => { root.command("out"); } }
+                Tool { label: root.has-image ? root.zoom-label : "—"; width: 60px; hint: "Zoom · Reset to actual size"; enabled: root.image-tools; clicked => { root.command("actual"); } }
+                Tool { icon: Icons.plus; has-icon: true; hint: "Zoom in  ·  +"; enabled: root.image-tools; clicked => { root.command("in"); } }
+            }
+            Group {
+                horizontal-stretch: 0;
+                Tool { label: "Fit"; checkable: true; active: root.fit-active && root.has-image; hint: "Fit to window  ·  0"; enabled: root.image-tools; clicked => { root.command("fit"); } }
+                Tool { label: "100%"; checkable: true; active: root.actual-active && root.has-image; hint: "Actual size  ·  1"; enabled: root.image-tools; clicked => { root.command("actual"); } }
+            }
+            Divider { }
+            VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: Icons.rotate; has-icon: true; hint: "Rotate right  ·  R"; enabled: root.image-tools; clicked => { root.command("right"); } } }
+            if root.animated: VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: root.paused ? Icons.play : Icons.pause; has-icon: true; checkable: true; active: !root.paused; hint: root.paused ? "Play animation  ·  Space" : "Pause animation  ·  Space"; enabled: root.image-tools; clicked => { root.command("pause"); } } }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: root.fullscreen ? Icons.exit-fullscreen : Icons.fullscreen; has-icon: true; hint: root.fullscreen ? "Leave fullscreen  ·  Esc" : "Fullscreen  ·  F11"; checkable: true; active: root.fullscreen; enabled: root.tools-enabled; clicked => { root.command("fullscreen"); } } }
+            VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: Icons.more; has-icon: true; hint: "More actions"; active: root.show-more; enabled: root.chrome && !root.modal; clicked => { root.show-more = !root.show-more; } } }
         }
     }
-    if root.status != "": Rectangle {
-        x: 18px; y: root.height - 92px; height: 30px;
-        width: min(parent.width - 36px, notice.preferred-width + 24px);
-        border-radius: 5px; background: #23303ee6;
-        notice := Text { x: 12px; width: parent.width - 24px; text: root.status; color: #d8e3ef; vertical-alignment: center; overflow: elide; font-size: 12px; }
+
+    if root.chrome && !root.show-more && !root.modal && Interaction.hint != "": Rectangle {
+        x: (root.width - self.width)/2; y: bar.y - 36px; height: 28px;
+        width: hint-text.preferred-width + 22px; border-radius: 5px; background: Theme.raised; border-width: 1px; border-color: Theme.stroke;
+        hint-text := Text { text: Interaction.hint; color: Theme.secondary; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
     }
+    if root.status != "" && (root.has-image || root.error-title == "") && !root.modal: Rectangle {
+        x: 18px; y: bar.y - 42px; height: 30px;
+        width: min(parent.width - 36px, notice.preferred-width + 28px);
+        border-radius: 6px; background: Theme.raised; border-width: 1px; border-color: Theme.stroke;
+        notice := Text { x: 14px; width: parent.width - 28px; text: root.status; color: Theme.secondary; vertical-alignment: center; overflow: elide; font-size: 12px; }
+    }
+
     if root.show-more: Rectangle {
-        width: 212px; height: 440px; x: parent.width - self.width - 12px; y: parent.height - self.height - 60px;
-        border-radius: 9px; background: #202b38; border-width: 1px; border-color: #354253;
-        VerticalLayout { padding: 10px; spacing: 1px;
-            Tool { label: "Fit width   W"; clicked => { root.command("width"); root.show-more=false; } }
-            Tool { label: "Rotate left   Shift+R"; clicked => { root.command("left"); root.show-more=false; } }
-            Tool { label: "Flip horizontal   H"; clicked => { root.command("horizontal"); root.show-more=false; } }
-            Tool { label: "Flip vertical   V"; clicked => { root.command("vertical"); root.show-more=false; } }
-            Tool { label: "Copy image   Ctrl+C"; clicked => { root.command("copy"); root.show-more=false; } }
-            Tool { label: "Copy path   Ctrl+Shift+C"; clicked => { root.command("path"); root.show-more=false; } }
-            Tool { label: "Move to Recycle Bin"; clicked => { root.command("delete"); root.show-more=false; } }
-            Tool { label: "Show in Explorer"; clicked => { root.command("reveal"); root.show-more=false; } }
-            Tool { label: "Open with…"; clicked => { root.command("open-with"); root.show-more=false; } }
-            Tool { label: "Image information   I"; clicked => { root.command("info"); root.show-more=false; } }
-            Tool { label: "Settings"; clicked => { root.command("settings"); root.show-more=false; } }
-            Text { text: "0.1.0 · Early Development\nMade with Slint"; color: #8996a5; font-size: 11px; horizontal-alignment: center; height: 40px; }
+        TouchArea { clicked => { root.show-more = false; Interaction.hint = ""; } }
+        Rectangle {
+            width: 306px; height: min(516px, root.height - Theme.header-height - Theme.bar-height - 16px);
+            x: bar.x + bar.width - self.width - 12px; y: bar.y - self.height - 8px;
+            border-radius: 10px; background: Theme.surface; border-width: 1px; border-color: Theme.stroke;
+            TouchArea { }
+            VerticalLayout {
+                padding: 8px; spacing: 4px;
+                ScrollView {
+                    viewport-width: self.width; horizontal-scrollbar-policy: always-off;
+                    VerticalLayout { spacing: 2px;
+                        Text { text: "VIEW"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; vertical-alignment: center; x: 12px; }
+                        Tool { menu: true; label: "Fit width"; icon: Icons.width; has-icon: true; shortcut: "W"; enabled: root.has-image && !root.loading; clicked => { root.command("width"); root.show-more=false; } }
+                        Tool { menu: true; label: "Rotate left"; icon: Icons.rotate; has-icon: true; shortcut: "Shift+R"; enabled: root.has-image && !root.loading; clicked => { root.command("left"); root.show-more=false; } }
+                        Tool { menu: true; label: "Flip horizontal"; icon: Icons.flip-h; has-icon: true; shortcut: "H"; enabled: root.has-image && !root.loading; clicked => { root.command("horizontal"); root.show-more=false; } }
+                        Tool { menu: true; label: "Flip vertical"; icon: Icons.flip-v; has-icon: true; shortcut: "V"; enabled: root.has-image && !root.loading; clicked => { root.command("vertical"); root.show-more=false; } }
+                        Rule { }
+                        Tool { menu: true; label: "Copy image"; icon: Icons.copy; has-icon: true; shortcut: "Ctrl+C"; enabled: root.has-image && !root.loading; clicked => { root.command("copy"); root.show-more=false; } }
+                        Tool { menu: true; label: "Copy path"; icon: Icons.path; has-icon: true; shortcut: "Ctrl+Shift+C"; enabled: root.has-image && !root.loading; clicked => { root.command("path"); root.show-more=false; } }
+                        Tool { menu: true; label: "Show in Explorer"; icon: Icons.folder; has-icon: true; enabled: root.has-image && !root.loading; clicked => { root.command("reveal"); root.show-more=false; } }
+                        Tool { menu: true; label: "Open with…"; icon: Icons.open; has-icon: true; enabled: root.has-image && !root.loading; clicked => { root.command("open-with"); root.show-more=false; } }
+                        Tool { menu: true; label: "Move to Recycle Bin"; icon: Icons.delete; has-icon: true; shortcut: "Del"; danger: true; enabled: root.has-image && !root.loading; clicked => { root.command("delete"); root.show-more=false; } }
+                        Rule { }
+                        Tool { menu: true; label: "Image information"; icon: Icons.info; has-icon: true; shortcut: "I"; enabled: root.has-image; clicked => { root.command("info"); root.show-more=false; } }
+                        Tool { menu: true; label: "Settings"; icon: Icons.settings; has-icon: true; clicked => { root.command("settings"); root.show-more=false; } }
+                    }
+                }
+                Rule { }
+                Text { text: "Kova Image  0.1.0  ·  Early Development"; color: Theme.muted; font-size: 11px; height: 26px; horizontal-alignment: center; vertical-alignment: center; }
+            }
         }
     }
-    if root.show-info || root.show-settings: Rectangle {
-        background: #00000099;
+
+    if root.modal: Rectangle {
+        background: #00000088;
         TouchArea { clicked => { root.show-info=false; root.show-settings=false; } }
         Rectangle {
-            width: min(500px,parent.width - 60px); height: root.show-settings ? 452px : 300px;
+            width: min(492px, parent.width - 40px); height: min(root.show-settings ? 544px : 410px, parent.height - 32px);
             x: (parent.width - self.width)/2; y: (parent.height - self.height)/2;
-            border-radius: 12px; background: #1b2531; border-width: 1px; border-color: #354253;
+            border-radius: 12px; background: Theme.surface; border-width: 1px; border-color: Theme.stroke;
             TouchArea { }
-            VerticalLayout { padding: 24px; spacing: 12px;
-                Text { text: root.show-settings ? "Settings" : "Image information"; color: #edf3fa; font-size: 19px; font-weight: 600; height: 30px; }
-                if root.show-info: Text { text: root.info; color: #c8d1dc; wrap: word-wrap; overflow: elide; }
-                if root.show-settings: VerticalLayout { spacing: 8px;
-                    CheckBox { text: "Autoplay animations"; checked <=> root.autoplay; toggled => { root.setting("autoplay",self.checked); } }
-                    CheckBox { text: "Honor animation loops (off: play once)"; checked <=> root.looping; toggled => { root.setting("looping",self.checked); } }
-                    CheckBox { text: "Natural filename sorting"; checked <=> root.natural-sort; toggled => { root.setting("natural",self.checked); } }
-                    CheckBox { text: "Auto-hide controls in fullscreen"; checked <=> root.auto-hide; toggled => { root.setting("hide",self.checked); } }
-                    CheckBox { text: "Mouse wheel zooms (off: navigate)"; checked <=> root.wheel-zoom; toggled => { root.setting("wheel",self.checked); } }
-                    CheckBox { text: "Sharp pixels"; checked <=> root.pixelated; toggled => { root.setting("pixels",self.checked); } }
-                    Tool { label: "Toggle light / dark background"; clicked => { root.setting("background",!root.light-background); } }
-                    HorizontalLayout { Text { text: "Default fit"; color: #c8d1dc; vertical-alignment: center; } Tool { label: "Window"; clicked => { root.setting("fit-window",true); } } Tool { label: "Width"; clicked => { root.setting("fit-width",true); } } Tool { label: "100%"; clicked => { root.setting("fit-actual",true); } } }
+            VerticalLayout {
+                padding: 20px; spacing: 14px;
+                HorizontalLayout {
+                    height: 36px; spacing: 12px;
+                    Rectangle { width: 20px; Image { source: root.show-settings ? Icons.settings : Icons.info; colorize: Theme.accent; width: 20px; height: 20px; y: (parent.height - self.height)/2; } }
+                    Text { text: root.show-settings ? "Settings" : "Image information"; color: Theme.text; font-size: 18px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                    Tool { icon: Icons.close; has-icon: true; hint: "Close panel  ·  Esc"; clicked => { root.show-info=false; root.show-settings=false; } }
                 }
-                Tool { label: "Close"; clicked => { root.show-info=false; root.show-settings=false; } }
+                Rule { }
+                ScrollView {
+                    viewport-width: self.width; horizontal-scrollbar-policy: always-off;
+                    if root.show-info: VerticalLayout {
+                        spacing: 14px;
+                        for field in root.info-fields: HorizontalLayout {
+                            spacing: 16px;
+                            Text { text: field.label; color: Theme.muted; font-size: 12px; width: 80px; }
+                            Text { text: field.value; color: Theme.text; font-size: 13px; wrap: word-wrap; horizontal-stretch: 1; }
+                        }
+                    }
+                    if root.show-settings: VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "PLAYBACK & NAVIGATION"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
+                        ToggleRow { label: "Autoplay animations"; checked <=> root.autoplay; toggled(value) => { root.setting("autoplay",value); } }
+                        ToggleRow { label: "Honor animation loop count"; checked <=> root.looping; toggled(value) => { root.setting("looping",value); } }
+                        ToggleRow { label: "Natural filename sorting"; checked <=> root.natural-sort; toggled(value) => { root.setting("natural",value); } }
+                        ToggleRow { label: "Auto-hide controls in fullscreen"; checked <=> root.auto-hide; toggled(value) => { root.setting("hide",value); } }
+                        ToggleRow { label: "Mouse wheel zooms (off: navigate)"; checked <=> root.wheel-zoom; toggled(value) => { root.setting("wheel",value); } }
+                        Rule { }
+                        Text { text: "APPEARANCE"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
+                        ToggleRow { label: "Sharp pixels at high zoom"; checked <=> root.pixelated; toggled(value) => { root.setting("pixels",value); } }
+                        ToggleRow { label: "Light image background"; checked: root.light-background; toggled(value) => { root.setting("background",value); } }
+                        HorizontalLayout { spacing: 6px;
+                            Text { text: "Default fit"; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
+                            Tool { label: "Window"; checkable: true; active: root.default-fit == "window"; clicked => { root.setting("fit-window",true); } }
+                            Tool { label: "Width"; checkable: true; active: root.default-fit == "width"; clicked => { root.setting("fit-width",true); } }
+                            Tool { label: "100%"; checkable: true; active: root.default-fit == "actual"; clicked => { root.setting("fit-actual",true); } }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    height: 36px;
+                    Text { text: root.show-settings ? "Saved locally on this device." : "View transformations leave the file unchanged."; color: Theme.muted; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; }
+                    Tool { label: "Done"; primary: true; clicked => { root.show-info=false; root.show-settings=false; } }
+                }
             }
         }
     }

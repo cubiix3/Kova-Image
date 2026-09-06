@@ -53,6 +53,12 @@ impl App {
                 self.update_view();
             }
             Escape => {
+                if ui.get_show_more() || ui.get_show_info() || ui.get_show_settings() {
+                    ui.set_show_more(false);
+                    ui.set_show_info(false);
+                    ui.set_show_settings(false);
+                    return;
+                }
                 ui.set_show_more(false);
                 ui.set_show_info(false);
                 ui.set_show_settings(false);

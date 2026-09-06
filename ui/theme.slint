@@ -1,0 +1,29 @@
+// Shared Kova surfaces and metrics. No blur, shadows, or animated backgrounds.
+export global Theme {
+    out property <color> canvas: #101214;
+    out property <color> surface: #1b1e22;
+    out property <color> raised: #24282d;
+    out property <color> hover: #30363d;
+    out property <color> pressed: #3a434c;
+    out property <color> stroke: #363d45;
+    out property <color> divider: #2b3036;
+    out property <color> text: #f0f2f5;
+    out property <color> secondary: #b2bac4;
+    out property <color> muted: #8d98a5;
+    out property <color> disabled: #626d79;
+    out property <color> accent: #86d5f4;
+    out property <color> selected: #253e4b;
+    out property <color> danger: #f49b9b;
+    out property <length> header-height: 56px;
+    out property <length> bar-height: 72px;
+    out property <length> control-height: 36px;
+    out property <length> radius: 7px;
+}
+
+// Interaction metadata only. Image state and decoding never enter this global.
+export global Interaction {
+    in-out property <string> hint;
+    in-out property <bool> keyboard: false;
+    in-out property <int> next-focus-id: 1;
+    in-out property <int> focused-control: 0;
+}

@@ -15,6 +15,8 @@ impl App {
                             && !ui.get_show_more()
                             && !ui.get_show_info()
                             && !ui.get_show_settings()
+                            && !ui.get_chrome_hovered()
+                            && !ui.get_control_focused()
                         {
                             ui.set_chrome(false);
                         }
@@ -44,12 +46,22 @@ impl App {
             }
             WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                ui.set_keyboard_mode(true);
+                self.wake_chrome();
                 #[cfg(debug_assertions)]
                 if std::env::var_os("KOVA_TEST_CAPTURE").is_some() {
                     eprintln!("test input: {:?} {:?}", event.logical_key, self.modifiers);
                 }
                 if let Some(action) = input::shortcut(&event.logical_key, self.modifiers) {
+                    // Space activates the focused control, including toggles;
+                    // otherwise it remains the viewer's playback shortcut.
+                    if action == Action::Pause && ui.get_control_focused() {
+                        return false;
+                    }
                     if (ui.get_show_settings() || ui.get_show_info()) && action != Action::Escape {
+                        return false;
+                    }
+                    if ui.get_show_more() && action != Action::Escape {
                         return false;
                     }
                     if !event.repeat
@@ -64,6 +76,7 @@ impl App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                ui.set_keyboard_mode(false);
                 let scale = ui.window().scale_factor();
                 self.cursor = (position.x as f32 / scale, position.y as f32 / scale);
                 self.wake_chrome();
@@ -75,6 +88,7 @@ impl App {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                ui.set_keyboard_mode(false);
                 if *state == ElementState::Released {
                     self.drag = None;
                 }
@@ -91,7 +105,10 @@ impl App {
                             self.action(Action::Next);
                             return true;
                         }
-                        MouseButton::Left if self.in_canvas() => self.drag = Some(self.cursor),
+                        MouseButton::Left if self.in_canvas() => {
+                            ui.invoke_focus_viewer();
+                            self.drag = Some(self.cursor);
+                        }
                         _ => {}
                     }
                 }
@@ -130,6 +147,7 @@ impl App {
                 self.schedule();
             }
             WindowEvent::Focused(false) => {
+                ui.set_keyboard_mode(false);
                 self.drag = None;
                 self.modifiers = ModifiersState::empty();
             }
@@ -139,11 +157,14 @@ impl App {
     }
     pub(super) fn in_canvas(&self) -> bool {
         self.ui.upgrade().is_some_and(|ui| {
-            self.cursor.1 >= ui.get_viewport_top()
+            self.cursor.0 >= ui.get_viewport_left()
+                && self.cursor.0 < ui.get_viewport_left() + ui.get_viewport_width()
+                && self.cursor.1 >= ui.get_viewport_top()
                 && self.cursor.1 < ui.get_viewport_top() + ui.get_viewport_height()
                 && (!ui.get_fullscreen()
                     || !ui.get_chrome()
-                    || (self.cursor.1 > 44. && self.cursor.1 < ui.get_viewport_height() - 52.))
+                    || (self.cursor.1 > ui.get_chrome_top()
+                        && self.cursor.1 < ui.get_viewport_height() - ui.get_chrome_bottom()))
         })
     }
 }

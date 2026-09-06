@@ -137,6 +137,9 @@ Settings live in `%LOCALAPPDATA%\Kova Image\settings.conf`.
 
 ## Performance philosophy
 
+The [interface design system](docs/DESIGN.md) keeps the image central, with
+grouped controls, explicit keyboard focus and restrained fullscreen overlays.
+
 No splash screen, database, thumbnails for every file or startup indexing.
 The current image wins over preloads. A single decode worker replaces pending
 requests, checks cancellation on file reads and frame boundaries, and preloads

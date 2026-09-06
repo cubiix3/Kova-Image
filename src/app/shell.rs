@@ -65,7 +65,11 @@ impl App {
                             ui.set_has_image(false);
                             ui.set_animated(false);
                             ui.set_filename("Kova Image".into());
+                            ui.set_image_detail("".into());
+                            ui.set_error_title("".into());
+                            ui.set_error_detail("".into());
                         }
+                        self.update_navigation();
                         self.status("Moved to Recycle Bin");
                     }
                 }

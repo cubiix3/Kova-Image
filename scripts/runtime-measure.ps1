@@ -2,12 +2,13 @@
 param(
     [Parameter(Mandatory=$true)][string]$Animation,
     [int]$SecondsPerPhase=10,
-    [string]$OutputDirectory='artifacts/runtime'
+    [string]$OutputDirectory='artifacts/runtime',
+    [string]$Executable
 )
 $ErrorActionPreference='Stop'
 if ($SecondsPerPhase -lt 1 -or $SecondsPerPhase -gt 60) { throw 'Phase duration must be 1 to 60 seconds.' }
 $root=Split-Path -Parent $PSScriptRoot
-$exe=Join-Path $root 'target/release/kova-image.exe'
+$exe=if ($Executable) { (Resolve-Path -LiteralPath $Executable).Path } else { Join-Path $root 'target/release/kova-image.exe' }
 $file=(Resolve-Path -LiteralPath $Animation).Path
 $null=New-Item -ItemType Directory -Force -Path $OutputDirectory
 $output=(Resolve-Path -LiteralPath $OutputDirectory).Path

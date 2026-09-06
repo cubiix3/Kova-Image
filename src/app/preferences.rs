@@ -10,6 +10,14 @@ impl App {
             ui.set_wheel_zoom(self.settings.wheel_zoom);
             ui.set_light_background(self.settings.light_background);
             ui.set_pixelated(self.settings.pixelated);
+            ui.set_default_fit(
+                match self.settings.fit {
+                    Fit::Width => "width",
+                    Fit::Actual => "actual",
+                    _ => "window",
+                }
+                .into(),
+            );
         }
     }
     pub(super) fn setting(&mut self, name: &str, value: bool) {

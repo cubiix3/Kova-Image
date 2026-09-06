@@ -90,24 +90,78 @@ impl App {
         ui.set_flip_h(self.view.flip_h);
         ui.set_flip_v(self.view.flip_v);
         ui.set_zoom_label(format!("{:.0}%", scale * 100.).into());
+        ui.set_fit_active(self.view.fit == Fit::Window);
+        ui.set_actual_active(self.view.fit == Fit::Actual);
+    }
+    pub(super) fn update_navigation(&self) {
+        if let Some(ui) = self.ui.upgrade() {
+            ui.set_can_previous(self.nav.index > 0 && !self.nav.files.is_empty());
+            ui.set_can_next(self.nav.index + 1 < self.nav.files.len());
+            ui.set_position_label(if self.nav.files.is_empty() {
+                "".into()
+            } else {
+                format!("{} / {}", self.nav.index + 1, self.nav.files.len()).into()
+            });
+        }
     }
     pub(super) fn update_info(&self) {
         if let (Some(ui), Some(image), Some(path)) =
             (self.ui.upgrade(), &self.image, &self.displayed)
         {
-            ui.set_info(format!("{}\n{:?} · {} × {} · {:.2} MiB\n{} frame(s) · 8-bit RGBA display\nImage {} of {}\n\n{}",path.file_name().unwrap_or_default().to_string_lossy(),image.format,image.width,image.height,image.stamp.bytes as f64/(1024.*1024.),image.frames.len(),self.nav.index+1,self.nav.files.len().max(1),path.display()).into());
+            let fields = [
+                (
+                    "Name",
+                    path.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                ("Format", format!("{:?}", image.format).to_uppercase()),
+                (
+                    "Dimensions",
+                    format!("{} × {} px", image.width, image.height),
+                ),
+                (
+                    "File size",
+                    format!("{:.2} MiB", image.stamp.bytes as f64 / (1024. * 1024.)),
+                ),
+                ("Frames", image.frames.len().to_string()),
+                ("Display", "8-bit RGBA".to_string()),
+                ("Location", path.to_string_lossy().into_owned()),
+            ]
+            .into_iter()
+            .map(|(label, value)| crate::ui::InfoField {
+                label: label.into(),
+                value: value.into(),
+            })
+            .collect::<Vec<_>>();
+            ui.set_info_fields(slint::ModelRc::new(slint::VecModel::from(fields)));
+            ui.set_image_detail(
+                format!(
+                    "{:?}  ·  {} × {}{}",
+                    image.format,
+                    image.width,
+                    image.height,
+                    if image.frames.len() > 1 {
+                        "  ·  Animated"
+                    } else {
+                        ""
+                    }
+                )
+                .into(),
+            );
         }
     }
     pub(super) fn zoom(&mut self, factor: f32, mouse: bool) {
         let (image, viewport) = self.geometry();
         let anchor = if mouse {
-            let top = self
+            let (left, top) = self
                 .ui
                 .upgrade()
-                .map(|ui| ui.get_viewport_top())
-                .unwrap_or(0.);
+                .map(|ui| (ui.get_viewport_left(), ui.get_viewport_top()))
+                .unwrap_or((0., 0.));
             (
-                self.cursor.0 - viewport.0 / 2.,
+                self.cursor.0 - left - viewport.0 / 2.,
                 self.cursor.1 - top - viewport.1 / 2.,
             )
         } else {

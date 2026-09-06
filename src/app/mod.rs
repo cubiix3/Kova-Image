@@ -74,6 +74,7 @@ struct App {
     hidden: bool,
     animation: Timer,
     hide_chrome: Timer,
+    notice: Timer,
     modifiers: ModifiersState,
     cursor: (f32, f32),
     drag: Option<(f32, f32)>,
@@ -172,6 +173,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         hidden: false,
         animation: Timer::default(),
         hide_chrome: Timer::default(),
+        notice: Timer::default(),
         modifiers: ModifiersState::empty(),
         cursor: (0., 0.),
         drag: None,
@@ -242,6 +244,16 @@ impl App {
     fn status(&self, text: impl Into<slint::SharedString>) {
         if let Some(ui) = self.ui.upgrade() {
             ui.set_status(text.into());
+            self.notice
+                .start(TimerMode::SingleShot, Duration::from_secs(5), || {
+                    with_app(|app| {
+                        if let Some(ui) = app.ui.upgrade()
+                            && !ui.get_loading()
+                        {
+                            ui.set_status("".into());
+                        }
+                    });
+                });
         }
     }
     fn open(&mut self, path: PathBuf, scan: bool) {
@@ -267,10 +279,14 @@ impl App {
             .loader
             .request(path, self.nav.neighbors(), scan, self.settings.natural_sort);
         if let Some(ui) = self.ui.upgrade() {
+            ui.set_error_title("".into());
+            ui.set_error_detail("".into());
             ui.set_loading(true);
             ui.set_status("Loading…".into());
             ui.set_show_info(false);
+            ui.set_show_more(false);
         }
+        self.update_navigation();
     }
     fn event(&mut self, event: Event) {
         match event {
@@ -321,7 +337,21 @@ impl App {
                         ui.set_picture(slint::Image::default());
                         ui.set_has_image(false);
                         ui.set_animated(false);
-                        ui.set_info("".into());
+                        ui.set_info_fields(slint::ModelRc::default());
+                        ui.set_image_detail("".into());
+                        ui.set_error_title(
+                            match &error {
+                                Error::NotFound => "Image not found",
+                                Error::AccessDenied => "Access denied",
+                                Error::Unsupported => "This format isn't supported",
+                                Error::TooLarge | Error::Dimensions | Error::MemoryBudget => {
+                                    "Image exceeds safety limits"
+                                }
+                                _ => "This image couldn't be opened",
+                            }
+                            .into(),
+                        );
+                        ui.set_error_detail(error.to_string().into());
                         ui.set_filename(
                             path.file_name()
                                 .unwrap_or_default()
@@ -336,6 +366,7 @@ impl App {
             Event::Folder { id, path, result } if id == self.id => match result {
                 Ok(files) => {
                     self.nav.set(files, &path);
+                    self.update_navigation();
                     self.update_info();
                 }
                 Err(e) => self.status(format!("Folder navigation: {e}")),

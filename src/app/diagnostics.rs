@@ -50,7 +50,7 @@ impl App {
             Ok(pixels) => {
                 let (width, height) = (pixels.width(), pixels.height());
                 let bytes = pixels.as_bytes().to_vec();
-                let state = format!(
+                let mut state = format!(
                     "filename={}\nstatus={}\nrotation={}\nflip_h={}\nflip_v={}\nzoom={}\npaused={}\nframe={}\nfullscreen={}\nwidth={}\nheight={}\npan_x={}\npan_y={}\n",
                     ui.get_filename(),
                     ui.get_status(),
@@ -66,6 +66,18 @@ impl App {
                     self.view.pan.0,
                     self.view.pan.1
                 );
+                state.push_str(&format!(
+                    "chrome_hovered={}\ncursor_x={}\ncursor_y={}\n",
+                    ui.get_chrome_hovered(),
+                    self.cursor.0,
+                    self.cursor.1
+                ));
+                state.push_str(&format!(
+                    "chrome={}\nmore={}\nsettings={}\ninfo={}\nfocused={}\nfit_active={}\nactual_active={}\ncan_previous={}\ncan_next={}\nerror={}\n",
+                    ui.get_chrome(), ui.get_show_more(), ui.get_show_settings(), ui.get_show_info(),
+                    ui.get_control_focused(), ui.get_fit_active(), ui.get_actual_active(),
+                    ui.get_can_previous(), ui.get_can_next(), ui.get_error_title()
+                ));
                 let _ = std::thread::spawn(move || {
                     let path = PathBuf::from(path);
                     let _ =
