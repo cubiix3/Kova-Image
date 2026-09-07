@@ -2,8 +2,9 @@
 
 ## Requirements
 
-Windows 10/11 x64, Rust 1.95.0 with the MSVC target, and Visual Studio's
-**Desktop development with C++** workload (including a Windows SDK).
+Windows 10/11 x64, Rust 1.95.0 with the MSVC target, and the
+**Desktop development with C++** workload (including a Windows SDK) from
+Visual Studio or the standalone Visual Studio Build Tools.
 
 ## Build and test
 
