@@ -123,8 +123,9 @@ Registration is per-user, needs no elevation and never changes protected
 
 ## Building from source
 
-Install Rust and Visual Studio's **Desktop development with C++** workload,
-including a Windows SDK. The pinned toolchain is Rust 1.95.0 (MSVC).
+Install Rust and the **Desktop development with C++** workload, including a
+Windows SDK, from either Visual Studio or the standalone Visual Studio Build
+Tools. The pinned toolchain is Rust 1.95.0 (MSVC).
 
 ```powershell
 git clone https://github.com/cubiix3/Kova-Image.git

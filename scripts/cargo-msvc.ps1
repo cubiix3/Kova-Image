@@ -1,13 +1,14 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Helper that runs a cargo command inside a Visual Studio 2022 x64 dev shell.
+    Helper that runs a cargo command inside a Visual Studio x64 dev shell.
 
 .DESCRIPTION
     Kova links against the Windows C++ runtime, so cargo needs the LIB/PATH
-    environment set by vcvars64.bat. This script discovers a VS2022 install
-    (preferring Community, then Professional, then Enterprise) and runs the
-    requested cargo command with the environment initialized.
+    environment set by vcvars64.bat. This script discovers a Visual Studio
+    install that carries the x64 C++ toolset - including the standalone Build
+    Tools - and runs the requested cargo command with the environment
+    initialized.
 
     It avoids calling the system `cmd` command because some environments have a
     Node wrapper at `cmd` that breaks argument parsing.
@@ -24,26 +25,51 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Find-VsVarsBatch {
-    # Visual Studio changed its installation layout over time: classic
-    # releases live under a four-digit year folder ("2022"), newer ones
-    # under a version-number folder ("18"). Probe every installed root and
-    # edition instead of hard-coding a single layout.
+    # vswhere ships with the installer and is the supported way to locate any
+    # instance, whichever edition, channel and directory layout it uses. Ask
+    # for the x64 C++ toolset so an install without it is skipped rather than
+    # reported as a working build environment.
+    $installerRoot = ${env:ProgramFiles(x86)}
+    if ($installerRoot) {
+        $vswhere = Join-Path $installerRoot "Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path -LiteralPath $vswhere) {
+            $installations = & $vswhere -latest -prerelease -products * `
+                -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+                -property installationPath
+            foreach ($installation in @($installations)) {
+                if (-not $installation) { continue }
+                $candidate = Join-Path $installation "VC\Auxiliary\Build\vcvars64.bat"
+                if (Test-Path -LiteralPath $candidate) {
+                    return $candidate
+                }
+            }
+        }
+    }
+
+    # Fallback for installs whose vswhere is missing. Visual Studio changed its
+    # installation layout over time: classic releases live under a four-digit
+    # year folder ("2022"), newer ones under a version-number folder ("18"), and
+    # the Build Tools land in the 32-bit Program Files root. Probe every
+    # installed root and edition instead of hard-coding a single layout.
     $roots = @()
-    $vsDir = "C:\Program Files\Microsoft Visual Studio"
-    if (Test-Path $vsDir) {
-        $roots = Get-ChildItem -LiteralPath $vsDir -Directory |
-            Sort-Object Name -Descending |
-            ForEach-Object { $_.FullName }
+    foreach ($programFiles in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if (-not $programFiles) { continue }
+        $vsDir = Join-Path $programFiles "Microsoft Visual Studio"
+        if (Test-Path -LiteralPath $vsDir) {
+            $roots += Get-ChildItem -LiteralPath $vsDir -Directory |
+                Sort-Object Name -Descending |
+                ForEach-Object { $_.FullName }
+        }
     }
     foreach ($root in $roots) {
-        foreach ($edition in @("Community", "Professional", "Enterprise")) {
+        foreach ($edition in @("Community", "Professional", "Enterprise", "BuildTools", "Preview")) {
             $candidate = Join-Path $root "$edition\VC\Auxiliary\Build\vcvars64.bat"
-            if (Test-Path $candidate) {
+            if (Test-Path -LiteralPath $candidate) {
                 return $candidate
             }
         }
     }
-    throw "vcvars64.bat not found. Install Visual Studio with the Desktop development with C++ workload."
+    throw "vcvars64.bat not found. Install Visual Studio or the Visual Studio Build Tools with the Desktop development with C++ workload."
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -74,7 +100,7 @@ foreach ($key in $after.Keys) {
     }
 }
 
-Write-Host "Visual Studio 2022 x64 environment loaded from: $vcvars" -ForegroundColor Cyan
+Write-Host "Visual Studio x64 environment loaded from: $vcvars" -ForegroundColor Cyan
 
 # If the user typed `cargo-msvc.ps1 cargo test ...`, drop the leading "cargo".
 if ($CargoArgs[0] -eq "cargo") {
