@@ -30,20 +30,37 @@ The repository CI also compiles the release EXE, but never publishes a release.
 Future GitHub Releases can attach the reviewed ZIP/checksum generated here.
 The release executable omits the debug-only renderer capture hook.
 
-## Installer strategy
+## Per-user installer
 
-Evaluate an Inno Setup per-user installer, consistent with Kova File, once the
-portable package passes clean Windows VM tests. Install under LocalAppData,
-create a Start menu shortcut and uninstall entry, and optionally register Kova
-Image under Open with. File associations must be opt-in and use supported
-Windows default-app flows; never overwrite UserChoice hashes.
+```powershell
+.\scripts\installer.ps1
+```
 
-Code signing, SmartScreen reputation, ARM64 support, redistributable licensing,
-upgrade/uninstall behavior and clean-machine file associations need more validation. There
-is no MSI/MSIX/Inno installer or stable release in this initial repository.
+The script runs the portable packaging above, then compiles
+[`packaging/kova-image.iss`](../packaging/kova-image.iss) with Inno Setup 6
+(`winget install JRSoftware.InnoSetup`) from that staging folder, and writes
+`dist\Kova-Image-<version>-x64-setup.exe` plus its SHA-256. Compiling the
+`.iss` on its own is an error: the installer may only be built from a payload
+that passed the license check, which fails closed. Use `-SkipPackage` to
+recompile the installer against the existing staging folder.
 
-The package script has been run successfully on the development machine. The
-result is a local evaluation artifact, not a validated clean-machine installer.
+The installer requires no elevation. It installs to
+`%LOCALAPPDATA%\Programs\Kova Image`, creates a Start menu shortcut and an
+uninstall entry, and offers an optional desktop icon. Registering Kova Image
+under Open with is an unchecked task: nothing is written to the registry unless
+the user selects it, and the registration itself only adds Kova's own ProgIDs.
+Windows keeps ownership of the default-application choice; no `UserChoice`
+value is read or written. Uninstalling removes the files, the shortcut, the
+payload folders and every registry key the registration created, leaving other
+applications' `OpenWithProgids` values untouched.
+
+Code signing, SmartScreen reputation, ARM64 support, redistributable licensing
+and clean-machine file associations still need validation. The installer is
+unsigned, so SmartScreen warns on first run.
+
+The package and installer scripts have been run successfully on the development
+machine, including an install/uninstall/reinstall cycle. That is a local
+evaluation result, not a validated clean-machine installation test.
 
 Per-user registration and a Default Apps settings helper are implemented; see
 [FILE_ASSOCIATIONS.md](FILE_ASSOCIATIONS.md). Portable packaging itself does not
