@@ -73,7 +73,8 @@ captures are published in documentation. See [DESIGN.md](DESIGN.md).
 - Cache budgets do not include every decoder scratch allocation, copied renderer
   frame or GPU texture. There is no hard total-process memory guarantee.
 - Shell operations have path-based race limitations; see security architecture.
-- No installer, signing, automatic default takeover or single-instance reuse.
+- No code signing, automatic default takeover or single-instance reuse. The
+  per-user installer is unsigned and untested on a clean machine.
 - No external comparative benchmarks or cold-start claims.
 
 The initial code is suitable for evaluation and iteration, not a claim that every

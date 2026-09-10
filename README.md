@@ -22,8 +22,10 @@
 </p>
 
 > **Early Development - 0.1.0.** The viewer is usable for evaluation, with known
-> limitations. No stable release or installer is published. Build from source
-> to try it; see the [validation record](docs/VALIDATION.md).
+> limitations. The per-user installer and portable ZIP on the
+> [releases page](https://github.com/cubiix3/Kova-Image/releases) are unsigned
+> and not yet tested on a clean machine; see the
+> [validation record](docs/VALIDATION.md).
 
 ## What is Kova Image?
 
@@ -101,7 +103,14 @@ See [video architecture and limits](docs/VIDEO.md). SVG is never rendered.
 
 ## Installation / Running
 
-There is no published installer or stable binary. After building:
+Download `Kova-Image-<version>-x64-setup.exe` from the
+[releases page](https://github.com/cubiix3/Kova-Image/releases) and run it. It
+installs for the current user only, so it needs no administrator rights, and it
+uninstalls through Settings > Apps. The build is unsigned, so SmartScreen warns
+on first run. A portable ZIP is published alongside it if you would rather not
+install anything.
+
+Command line, whether installed or built from source:
 
 ```powershell
 .\target\release\kova-image.exe
@@ -115,9 +124,10 @@ Slint's FemtoVG renderer. Keep any packaged runtime DLLs alongside the executabl
 See [Windows builds and packaging](docs/WINDOWS_RELEASE.md). Video also requires
 the Windows Media Foundation components (Windows N installations may lack them).
 
-To enable **Open with**, keep the executable in a permanent folder, then use
-Settings > **Register Kova Image for Open with**, followed by **Choose default
-viewer in Windows Settings**. Or run `kova-image.exe --register-file-associations`.
+To enable **Open with**, keep the executable in a permanent folder - the
+installer offers this as an optional step - then use Settings >
+**Register Kova Image for Open with**, followed by **Choose default viewer in
+Windows Settings**. Or run `kova-image.exe --register-file-associations`.
 Registration is per-user, needs no elevation and never changes protected
 `UserChoice` defaults. [Registration details](docs/FILE_ASSOCIATIONS.md).
 

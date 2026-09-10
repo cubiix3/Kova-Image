@@ -36,9 +36,10 @@ which formats the user selects; older Windows versions may show the general
 Default Apps page.
 
 Moving/removing the executable can invalidate registration. Register again from
-its new permanent location. A complete installer, Start menu shortcut,
-upgrade/uninstall cleanup and clean-machine association tests are future work;
-this is not an installer or an automatic default takeover.
+its new permanent location. The [per-user installer](WINDOWS_RELEASE.md) keeps a
+permanent folder for you, offers registration as an unchecked task and removes
+these keys again on uninstall. Registration itself is still not an automatic
+default takeover, and clean-machine association tests remain future work.
 
 References: [Default Programs registration](https://learn.microsoft.com/en-us/windows/win32/shell/default-programs),
 [launch Default Apps Settings](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-default-apps-settings).
