@@ -81,9 +81,9 @@ V1 objective or every hostile image is already handled.
 
 ## Compact UI and local video
 
-The header is now 50 px, the bottom bar 60 px, with 32 px controls and consistent
-rounded groups. Real renderer captures cover the empty state, image view, video
-transport, short windows and popovers. The mixed navigation GUI check switches
+The earlier compact layout used a 50 px header and a 60 px bottom bar, with
+32 px controls and rounded groups. Real renderer captures cover the empty state,
+image view, video transport, short windows and popovers. The mixed navigation GUI check switches
 image -> MP4 -> MOV -> WebM -> MKV and verifies that late results cannot replace
 the newest file. Timeline seeking, pause/clock stability, mute, file information
 and fullscreen hide/wake are checked against the running native player.
@@ -111,3 +111,31 @@ unsigned portable package build successfully; no stable release was published.
 The settings scroll extent was corrected so Windows registration/default-app
 helpers remain reachable. The bottom section was captured after real wheel
 input; it is not merely present outside the visible panel.
+
+## Floating controls and action feedback — 2026-09-10
+
+The 40 px titlebar and floating viewing controls were checked locally with
+Slint's default GPU renderer and its software fallback. The windowed titlebar
+remains available when controls hide. The dedicated `--state=chrome` check
+verifies unchanged viewport, image dimensions and pan, and compares rendered
+image pixels before and after hiding. It also verifies feedback and expiry
+while controls are hidden, Tab recovery, focus/menu/held-drag retention, panning
+beside the controls, and suppression of canvas pan/zoom over the visible bar.
+
+The existing image/animation workflow passes on both renderers, including
+Tab/Space activation and the 640 × 420 layout. Native video checks pass on both
+renderers, including a held seek outside the timeline without an early seek or
+hidden controls, mute feedback while controls are hidden, pause/clock stability,
+mixed-media navigation and fullscreen hide/wake.
+
+The disabled-auto-hide setting retains controls in both window modes. Empty,
+missing, corrupted and long-filename states pass the state/focus checks; the
+new image, video, empty and compact layouts were visually reviewed.
+
+The harness starts without requesting activation and resets isolated test
+preferences on each run. GPU visual captures receive a second render; timed
+wake assertions sample once because saving large fullscreen PNGs can exceed
+the inactivity timeout. Captures are generated test content, not desktop images.
+
+Local formatting, all-target check, strict Clippy, all 29 Cargo tests and the
+optimized release build pass. This refinement adds no runtime dependencies.
