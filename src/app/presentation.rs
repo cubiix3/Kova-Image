@@ -193,5 +193,8 @@ impl App {
         };
         self.view.zoom_at(factor, anchor, image, viewport);
         self.update_view();
+        if let Some(ui) = self.ui.upgrade() {
+            self.feedback(ui.get_zoom_label());
+        }
     }
 }

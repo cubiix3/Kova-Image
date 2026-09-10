@@ -30,6 +30,7 @@ export component ViewerWindow inherits Window {
     callback volume-change(float);
     in property <string> filename: "Kova Image";
     in property <string> status;
+    in property <string> feedback;
     in property <[InfoField]> info-fields;
     in property <string> zoom-label: "Fit";
     in property <float> display-width;
@@ -60,6 +61,7 @@ export component ViewerWindow inherits Window {
     callback command(string);
     callback setting(string,bool);
     callback drag-window;
+    callback activity;
 
     in property <string> image-detail;
     in property <string> error-title;
@@ -79,21 +81,27 @@ export component ViewerWindow inherits Window {
         Interaction.hint = "";
     }
     out property <bool> chrome-hovered: header-touch.has-hover || bar-touch.has-hover;
+    changed chrome-hovered => { root.activity(); }
+    changed control-focused => { root.activity(); }
     out property <float> chrome-top: Theme.header-height / 1px;
-    out property <float> chrome-bottom: root.bar-height / 1px + (root.fullscreen ? 12 : 0);
+    out property <float> controls-left: bar.x / 1px;
+    out property <float> controls-top: bar.y / 1px;
+    out property <float> controls-width: bar.width / 1px;
+    out property <float> controls-height: bar.height / 1px;
     property <length> bar-height: Theme.bar-height;
     property <bool> modal: root.show-info || root.show-settings;
-    changed modal => { if !root.modal { root.focus-viewer(); } }
-    changed show-more => { if !root.show-more && !root.modal { root.focus-viewer(); } }
+    changed modal => { if !root.modal { root.focus-viewer(); } root.activity(); }
+    changed show-more => { if !root.show-more && !root.modal { root.focus-viewer(); } root.activity(); }
     property <bool> tools-enabled: root.chrome && !root.modal && !root.show-more;
+    property <bool> header-enabled: (!root.fullscreen || root.chrome) && !root.modal && !root.show-more;
     property <bool> image-tools: root.tools-enabled && root.has-image && !root.loading && !root.is-video;
     property <bool> compact: root.width < 820px;
 
     canvas := Rectangle {
-        x: root.fullscreen ? 0px : 12px;
-        y: root.fullscreen ? 0px : Theme.header-height + 12px;
-        height: root.height - (root.fullscreen ? 0px : Theme.header-height + root.bar-height + 24px);
-        width: root.width - (root.fullscreen ? 0px : 24px);
+        x: 0px;
+        y: root.fullscreen ? 0px : Theme.header-height;
+        height: root.height - self.y;
+        width: root.width;
         background: root.light-background && root.has-image ? #cfd3d8 : Theme.canvas;
         clip: true;
         canvas-focus := FocusScope {
@@ -149,46 +157,44 @@ export component ViewerWindow inherits Window {
         // every icon and label again with each image frame. Still images need no layer.
         cache-rendering-hint: root.animated;
         x: 0px; y: 0px; width: root.width; height: Theme.header-height;
-        background: Theme.surface; opacity: root.chrome ? 1 : 0;
+        background: Theme.surface; opacity: !root.fullscreen || root.chrome ? 1 : 0;
         visible: self.opacity > 0;
         animate opacity { duration: 120ms; }
         header-touch := TouchArea {
-            enabled: root.tools-enabled;
+            enabled: root.header-enabled;
             pointer-event(event) => { if event.kind == PointerEventKind.down && event.button == PointerEventButton.left { root.drag-window(); } }
             double-clicked => { root.command("maximize"); }
         }
         Rule { y: parent.height - 1px; }
         HorizontalLayout {
-            padding-left: 14px; spacing: 0px;
-            HorizontalLayout {
-                width: root.compact ? 124px : 142px; spacing: 8px; alignment: start;
-                Rectangle { width: 24px; Image { source: @image-url("../assets/kova.svg"); width: 24px; height: 24px; y: (parent.height - self.height)/2; } }
-                Text { text: "Kova Image"; color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+            padding-left: 12px; spacing: 0px;
+            Rectangle { width: 20px; Image { source: @image-url("../assets/kova.svg"); width: 20px; height: 20px; y: (parent.height - self.height)/2; } }
+            Rectangle { width: 10px; }
+            Text { text: root.filename; color: Theme.text; font-size: 13px; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+            if root.width > 900px && root.has-image: Text {
+                text: root.loading ? "Opening media…" : root.image-detail;
+                color: Theme.muted; font-size: 11px; vertical-alignment: center;
+                max-width: 240px; overflow: elide;
             }
-            Divider { }
-            VerticalLayout {
-                padding-left: 14px; padding-right: 12px; alignment: center; spacing: 2px; horizontal-stretch: 1;
-                Text { text: root.filename == "Kova Image" ? "Local media viewer" : root.filename; color: root.has-image ? Theme.text : Theme.secondary; font-size: 13px; overflow: elide; }
-                Text { text: root.loading ? "Opening media…" : root.error-title != "" ? root.error-title : root.image-detail != "" ? root.image-detail : "Local files. Nothing else."; color: Theme.muted; font-size: 11px; overflow: elide; }
-            }
-            VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { label: root.compact ? "" : "Open"; icon: Icons.open; has-icon: true; filled: true; hint: "Open file  ·  Ctrl+O"; enabled: root.tools-enabled; clicked => { root.command("open"); } } }
             Rectangle { width: 12px; }
-            Tool { icon: Icons.minimize; has-icon: true; hint: "Minimize"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; enabled: root.tools-enabled; clicked => { root.command("minimize"); } }
-            Tool { icon: Icons.maximize; has-icon: true; hint: "Maximize / restore"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; enabled: root.tools-enabled; clicked => { root.command("maximize"); } }
-            Tool { icon: Icons.close; has-icon: true; hint: "Close window"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; danger: true; enabled: root.tools-enabled; clicked => { root.command("close"); } }
+            VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: Icons.open; has-icon: true; hint: "Open file  ·  Ctrl+O"; enabled: root.header-enabled; clicked => { root.command("open"); } } }
+            Rectangle { width: 8px; }
+            Tool { icon: Icons.minimize; has-icon: true; hint: "Minimize"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; enabled: root.header-enabled; clicked => { root.command("minimize"); } }
+            Tool { icon: Icons.maximize; has-icon: true; hint: "Maximize / restore"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; enabled: root.header-enabled; clicked => { root.command("maximize"); } }
+            Tool { icon: Icons.close; has-icon: true; hint: "Close window"; width: 44px; height: Theme.header-height - 1px; border-radius: 0px; danger: true; enabled: root.header-enabled; clicked => { root.command("close"); } }
         }
     }
 
     bar := Rectangle {
         cache-rendering-hint: root.animated;
-        x: root.fullscreen ? max(12px, (root.width - 1000px)/2) : 0px;
-        width: root.fullscreen ? min(1000px, root.width - 24px) : root.width;
-        y: root.height - root.bar-height - (root.fullscreen ? 12px : 0px);
-        height: root.bar-height; border-radius: root.fullscreen ? 16px : 0px;
+        width: min(root.is-video ? 920px : 760px, root.width - 24px);
+        x: (root.width - self.width)/2;
+        y: root.height - root.bar-height - 12px;
+        height: root.bar-height; border-radius: 16px;
+        border-width: 1px; border-color: Theme.stroke;
         background: Theme.surface; opacity: root.chrome ? 1 : 0; visible: self.opacity > 0;
         animate opacity { duration: 120ms; }
         bar-touch := TouchArea { enabled: root.tools-enabled; }
-        if !root.fullscreen: Rule { }
         HorizontalLayout {
             padding: 12px; spacing: root.compact ? 6px : 10px;
             Group {
@@ -224,6 +230,13 @@ export component ViewerWindow inherits Window {
             VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: root.fullscreen ? Icons.exit-fullscreen : Icons.fullscreen; has-icon: true; hint: root.fullscreen ? "Leave fullscreen  ·  Esc" : "Fullscreen  ·  F11"; checkable: true; active: root.fullscreen; enabled: root.tools-enabled; clicked => { root.command("fullscreen"); } } }
             VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: Icons.more; has-icon: true; hint: "More actions"; active: root.show-more; enabled: root.chrome && !root.modal; clicked => { root.show-more = !root.show-more; } } }
         }
+    }
+
+    if root.feedback != "" && root.has-image && !root.modal && !root.show-more: Rectangle {
+        x: (root.width - self.width)/2; y: max(canvas.y, Theme.header-height) + 20px;
+        width: min(root.width - 32px, feedback-text.preferred-width + 36px); height: 44px;
+        border-radius: 12px; background: Theme.surface; border-width: 1px; border-color: Theme.stroke;
+        feedback-text := Text { text: root.feedback; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
     }
 
     if root.chrome && !root.show-more && !root.modal && Interaction.hint != "": Rectangle {
@@ -309,7 +322,7 @@ export component ViewerWindow inherits Window {
                             ToggleRow { label: "Autoplay videos"; checked <=> root.video-autoplay; toggled(value) => { root.setting("video-autoplay",value); } }
                             ToggleRow { label: "Loop videos"; checked <=> root.video-loop; toggled(value) => { root.setting("video-loop",value); } }
                             ToggleRow { label: "Natural filename sorting"; checked <=> root.natural-sort; toggled(value) => { root.setting("natural",value); } }
-                            ToggleRow { label: "Auto-hide controls in fullscreen"; checked <=> root.auto-hide; toggled(value) => { root.setting("hide",value); } }
+                            ToggleRow { label: "Auto-hide viewing controls"; checked <=> root.auto-hide; toggled(value) => { root.setting("hide",value); } }
                             ToggleRow { label: "Mouse wheel zooms (off: navigate)"; checked <=> root.wheel-zoom; toggled(value) => { root.setting("wheel",value); } }
                             Rule { }
                             Text { text: "APPEARANCE"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }

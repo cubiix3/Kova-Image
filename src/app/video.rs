@@ -126,10 +126,14 @@ impl App {
                 let first = self.video_state.is_none();
                 self.video_state = Some(state);
                 if let Some(frame) = update.frame {
+                    let was_loading = ui.get_loading();
                     ui.set_picture(slint::Image::from_rgba8(frame));
                     ui.set_has_image(true);
                     ui.set_loading(false);
                     ui.set_status("".into());
+                    if was_loading {
+                        self.wake_chrome();
+                    }
                     if !self.render_notifications {
                         self.image_ready_without_notifier();
                     }
@@ -185,7 +189,13 @@ impl App {
             } else {
                 state.position + value
             };
-            player.seek(target.clamp(0.0, state.duration));
+            let target = target.clamp(0.0, state.duration);
+            player.seek(target);
+            self.feedback(if fraction {
+                kova_image::video::time_label(target)
+            } else {
+                format!("{:+.0} s", target - state.position)
+            });
         }
     }
     pub(super) fn audio_video(&mut self, volume: f64, muted: bool) {
@@ -198,6 +208,11 @@ impl App {
             ui.set_volume(self.volume as f32);
             ui.set_muted(muted);
         }
+        self.feedback(if muted || self.volume == 0. {
+            "Muted".to_string()
+        } else {
+            format!("Volume {:.0}%", self.volume * 100.)
+        });
     }
     pub(super) fn video_info(&self) {
         if let (Some(ui), Some(state), Some(stamp), Some(path)) = (

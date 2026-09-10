@@ -67,6 +67,12 @@ impl App {
                     self.view.pan.1
                 );
                 state.push_str(&format!(
+                    "feedback={}\nviewport_width={}\nviewport_height={}\ndisplay_width={}\ndisplay_height={}\ncontrols_left={}\ncontrols_top={}\ncontrols_width={}\ncontrols_height={}\n",
+                    ui.get_feedback(), ui.get_viewport_width(), ui.get_viewport_height(),
+                    ui.get_display_width(), ui.get_display_height(), ui.get_controls_left(),
+                    ui.get_controls_top(), ui.get_controls_width(), ui.get_controls_height(),
+                ));
+                state.push_str(&format!(
                     "chrome_hovered={}\ncursor_x={}\ncursor_y={}\n",
                     ui.get_chrome_hovered(),
                     self.cursor.0,

@@ -70,6 +70,13 @@ uses only its own HWND. Additional visual states can be captured with
 `--state=empty`, `--state=missing`, `--state=corrupted` and `--state=long-name`.
 Each checks the expected state and keyboard focus at minimum size.
 
+`--state=chrome` checks windowed auto-hide without changing viewport or image
+geometry, feedback while controls are hidden and its expiry, Tab recovery,
+focus/menu/drag retention, and panning beside the floating controls. Run it
+with both the default renderer and `--software` after interaction changes.
+`--state=pinned` verifies that disabling auto-hide retains the controls in both
+windowed and fullscreen viewing. Each run writes isolated test preferences.
+
 Pass `--software` to repeat GUI checks on the fallback. Pass `--clipboard` only
 when willing to replace the clipboard with a generated fixture; that opt-in
 tests native Copy Path and Copy Image without reading previous clipboard data.
