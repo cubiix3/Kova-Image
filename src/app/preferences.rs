@@ -44,6 +44,7 @@ impl App {
             _ => return,
         }
         self.sync_settings();
+        self.wake_chrome();
         self.send_shell(Action::Settings, Some(self.settings.clone()));
     }
 }

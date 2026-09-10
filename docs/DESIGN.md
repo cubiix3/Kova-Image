@@ -20,11 +20,14 @@ appropriate for viewing images.
 | Selected surface / Kova accent | `#253e4b` / `#86d5f4` |
 | Subtle divider | `#2b3036` |
 
-The 50 px header balances the existing Kova mark, filename, format and dimensions.
-The 60 px bottom surface contains 32 px controls in 36 px groups: navigation,
-zoom, fit mode, transforms/playback, and fullscreen/more. Below 820 px the Open
-label and spacing become compact; controls retain their hit areas. The minimum
-window remains 640 × 420. Popovers scroll within short windows.
+The 40 px header gives the filename priority beside a small Kova mark. Format
+and dimensions appear at the right in windows wider than 900 px. Open and the
+Windows window controls remain available when the viewing controls hide.
+The floating 60 px bottom surface contains 32 px controls in 36 px groups:
+navigation, zoom, fit mode, transforms/playback, and fullscreen/more. It is
+centered with a 12 px bottom margin, at most 760 px wide for images or 920 px
+for video. Below 820 px spacing becomes compact; controls retain their hit
+areas. The minimum window remains 640 × 420. Popovers scroll within short windows.
 
 The shared `Tool`, `ToggleRow`, `Group`, `Rule` and `Divider` components in
 `ui/controls.slint` provide consistent enabled, disabled, hover, pressed, active
@@ -47,9 +50,16 @@ actions and errors. Small images retain their natural size in Fit mode.
   animation playback.
 - Escape dismisses the current popup before leaving fullscreen. Clicking outside
   More dismisses it. Settings and information share the same panel structure.
-- Fullscreen uses a compact floating control surface. After two seconds of
-  inactivity, header and controls fade over 120 ms. Hovered controls, open
-  popovers and keyboard-focused controls remain available.
+- The floating controls fade over 120 ms after two seconds of inactivity in
+  windowed and fullscreen viewing. The fullscreen header hides with them;
+  the windowed titlebar stays visible. Hovered controls, open popovers,
+  keyboard-focused controls and held pointer interactions remain available.
+  Mouse movement and Tab restore the controls. The setting applies to both modes.
+- Viewing shortcuts can leave the controls hidden. Zoom, fit, rotation, flips,
+  pause/play, volume and seeking show a compact feedback message for 1.4 seconds.
+  Repeated actions replace the message and restart its timer. Opening another
+  file clears it. Feedback has its own timer and never replaces file-operation
+  notices or loading/error messages.
 - Empty, loading and error states have distinct, concise text. Decode failures
   retain folder navigation. Successful action notices expire after five seconds.
 - Image information uses label/value rows, with wrapping paths. View transforms
@@ -73,9 +83,12 @@ on every frame. This hint is disabled for still images. It trades bounded chrome
 texture memory for less CPU work; the image itself is never cached in this layer.
 See Slint's [rendering-cache guidance](https://docs.slint.dev/latest/docs/slint/reference/common/#cache-rendering-hint).
 
-The viewport now has a 12 px inset in windowed mode. Cursor-anchored zoom accounts
-for that offset; fullscreen uses the full viewport. Geometry is still calculated
-by the existing Rust view model.
+The windowed viewport fills the area below the titlebar; fullscreen fills the
+window. The controls overlay that viewport, so their visibility never changes
+image scale or position. Pointer hit testing excludes the visible control
+rectangle while retaining pan/zoom in the canvas beside it. Cursor-anchored
+zoom accounts for the titlebar offset. Geometry is still calculated by the
+existing Rust view model.
 
 ## Local video presentation
 

@@ -33,12 +33,15 @@ if state_file.exists():
 log = open(OUT / "viewer.log", "w", encoding="utf-8")
 arguments = [str(ROOT / "target/debug/kova-image.exe")]
 scenario = next((arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--state=")), "")
+settings = Path(env["LOCALAPPDATA"]) / "Kova Image/settings.conf"
+settings.parent.mkdir(parents=True, exist_ok=True)
+settings.write_text(
+    "video_autoplay=" + ("false" if "--no-autoplay" in sys.argv else "true") + "\n"
+    "auto_hide=" + ("false" if scenario == "pinned" else "true") + "\n"
+)
 if "--software" in sys.argv:
     arguments.append("--software")
 if scenario == "video":
-    settings=Path(env["LOCALAPPDATA"]) / "Kova Image/settings.conf"
-    settings.parent.mkdir(parents=True, exist_ok=True)
-    settings.write_text("video_autoplay=" + ("false" if "--no-autoplay" in sys.argv else "true") + "\n")
     (ROOT / "artifacts/video-fixtures/clip0.png").write_bytes((fixture.parent / "image2.png").read_bytes())
     arguments.append(str(ROOT / "artifacts/video-fixtures/clip1.mp4"))
 elif scenario == "missing":
@@ -53,7 +56,10 @@ elif scenario == "long-name":
     arguments.append(str(named))
 elif scenario != "empty":
     arguments.append(str(fixture))
-process = subprocess.Popen(arguments, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+startup = subprocess.STARTUPINFO()
+startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+startup.wShowWindow = 4  # SW_SHOWNOACTIVATE: tests must not take keyboard focus.
+process = subprocess.Popen(arguments, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log, startupinfo=startup)
 hwnd = None
 
 
@@ -83,6 +89,7 @@ def key(vk):
 def click(x, y):
     point = x | (y << 16)
     user.PostMessageW(hwnd, 0x200, 0, point)
+    time.sleep(0.15)  # Allow auto-hidden controls to appear before clicking.
     user.PostMessageW(hwnd, 0x201, 1, point)
     user.PostMessageW(hwnd, 0x202, 0, point)
 
@@ -93,11 +100,19 @@ def keep_background():
     user.SetWindowPos(hwnd, 1, 0, 0, 0, 0, 0x0013)
 
 
-def snapshot(name):
+def snapshot(name, refresh=True):
     time.sleep(0.18)
     old = state_file.stat().st_mtime_ns if state_file.exists() else 0
     key(0x7B)  # F12, debug-only capture
     wait_for(lambda: state_file.exists() and state_file.stat().st_mtime_ns != old)
+    # A background GPU window can return the preceding frame on its first
+    # snapshot. Refresh visual evidence, but sample time-sensitive state only
+    # once: encoding a large fullscreen PNG can outlast the auto-hide timer.
+    if refresh and "--software" not in sys.argv:
+        time.sleep(0.05)
+        old = state_file.stat().st_mtime_ns
+        key(0x7B)
+        wait_for(lambda: state_file.stat().st_mtime_ns != old)
     values = dict(line.split("=", 1) for line in state_file.read_text().splitlines() if "=" in line)
     if values.get("status", "").startswith("Loading"):
         deadline = time.monotonic() + 20
@@ -112,6 +127,18 @@ def snapshot(name):
     (OUT / (name + ".png")).write_bytes(capture.read_bytes())
     (OUT / (name + ".txt")).write_text(state_file.read_text())
     return values
+
+
+def more_menu():
+    values = snapshot("menu-anchor")
+    click(int(float(values["controls_left"]) + float(values["controls_width"]) - 28),
+          int(float(values["controls_top"]) + 30))
+
+
+def menu_row(offset):
+    values = snapshot("menu-row-anchor")
+    click(int(float(values["controls_left"]) + float(values["controls_width"]) - 150),
+          int(float(values["controls_top"]) - offset))
 
 
 try:
@@ -143,13 +170,31 @@ try:
         position=float(values["video_position"])
         time.sleep(0.4)
         assert abs(float(snapshot("video-paused-stable")["video_position"])-position)<0.15
-        click(600,710)
+        # Dragging outside the timeline must keep controls available and defer
+        # the actual seek until release, without passing the drag to the canvas.
+        user.PostMessageW(hwnd, 0x200, 0, 600 | (698 << 16))
+        user.PostMessageW(hwnd, 0x201, 1, 600 | (698 << 16))
+        user.PostMessageW(hwnd, 0x200, 1, 600 | (370 << 16))
+        time.sleep(2.5)
+        values = snapshot("video-seek-held")
+        assert values["chrome"] == "true" and values["chrome_hovered"] == "false"
+        assert abs(float(values["video_position"]) - position) < 0.15
+        user.PostMessageW(hwnd, 0x202, 0, 600 | (370 << 16))
+        click(600,698)
         assert float(snapshot("video-seek")["video_position"]) > 3
         click(540,370)
         key(ord("M"))
         assert snapshot("video-unmuted")["muted"] == "false"
         key(ord("M"))
-        assert snapshot("video-muted")["muted"] == "true"
+        values = snapshot("video-muted")
+        assert values["muted"] == "true" and values["feedback"] == "Muted"
+        user.PostMessageW(hwnd,0x200,0,541 | (370 << 16))
+        time.sleep(2.5)
+        assert snapshot("video-windowed-hidden")["chrome"] == "false"
+        key(ord("M"))
+        values = snapshot("video-hidden-feedback")
+        assert values["chrome"] == "false" and values["feedback"].startswith("Volume ")
+        key(ord("M"))
         key(ord("I"))
         assert snapshot("video-info")["info"] == "true"
         key(0x1B)
@@ -163,7 +208,7 @@ try:
         time.sleep(2.5)
         assert snapshot("video-fullscreen-hidden")["chrome"] == "false"
         user.PostMessageW(hwnd,0x200,0,541 | (370 << 16))
-        assert snapshot("video-fullscreen-awake")["chrome"] == "true"
+        assert snapshot("video-fullscreen-awake", refresh=False)["chrome"] == "true"
         key(0x1B)
         key(0x25)
         values=snapshot("video-to-image")
@@ -178,6 +223,70 @@ try:
         time.sleep(0.5)
         assert snapshot("video-stale-protection")["filename"]=="clip4.mkv"
         print("PASS: native video frame, pause, stable clock, timeline seek, mute, info, compact layout, fullscreen auto-hide")
+    elif scenario == "pinned":
+        wait_for(state_file.exists)
+        click(540, 370)
+        time.sleep(2.5)
+        assert snapshot("pinned-windowed")["chrome"] == "true"
+        key(0x7A)
+        keep_background()
+        time.sleep(2.5)
+        assert snapshot("pinned-fullscreen")["chrome"] == "true"
+        print("PASS: disabled auto-hide retains controls in windowed and fullscreen viewing")
+    elif scenario == "chrome":
+        wait_for(state_file.exists)
+        click(540, 370)
+        shown = snapshot("chrome-shown")
+        time.sleep(2.5)
+        hidden = snapshot("chrome-hidden")
+        assert shown["chrome"] == "true" and hidden["chrome"] == "false"
+        for field in ("viewport_width", "viewport_height", "display_width", "display_height", "pan_x", "pan_y"):
+            assert shown[field] == hidden[field], f"Auto-hide changed {field}"
+        from PIL import Image, ImageChops
+        with Image.open(OUT / "chrome-shown.png") as before, Image.open(OUT / "chrome-hidden.png") as after:
+            assert ImageChops.difference(before.crop((0, 40, 1080, 640)), after.crop((0, 40, 1080, 640))).getbbox() is None
+            assert before.getpixel((180, 690)) != after.getpixel((180, 690)), "Controls did not visually hide"
+        key(0xBB)
+        values = snapshot("chrome-zoom-feedback")
+        assert values["chrome"] == "false" and values["feedback"] == values["zoom"]
+        time.sleep(1.6)
+        assert snapshot("chrome-feedback-expired")["feedback"] == ""
+        key(0x09)
+        values = snapshot("chrome-tab")
+        assert values["chrome"] == "true" and values["focused"] == "true"
+        time.sleep(2.5)
+        assert snapshot("chrome-focus-held")["chrome"] == "true"
+        click(540, 370)
+        more_menu()
+        assert snapshot("chrome-menu")["more"] == "true"
+        time.sleep(2.5)
+        assert snapshot("chrome-menu-held")["chrome"] == "true"
+        click(540, 370)
+        time.sleep(2.5)
+        values = snapshot("chrome-menu-dismissed")
+        assert values["more"] == "false" and values["chrome"] == "false"
+        user.PostMessageW(hwnd, 0x200, 0, 540 | (370 << 16))
+        user.PostMessageW(hwnd, 0x201, 1, 540 | (370 << 16))
+        time.sleep(2.5)
+        assert snapshot("chrome-drag-held")["chrome"] == "true"
+        user.PostMessageW(hwnd, 0x202, 0, 540 | (370 << 16))
+        time.sleep(2.5)
+        assert snapshot("chrome-drag-released")["chrome"] == "false"
+        # The canvas extends beside the floating bar; those margins still pan.
+        key(ord("1"))
+        user.PostMessageW(hwnd, 0x200, 0, 30 | (690 << 16))
+        user.PostMessageW(hwnd, 0x201, 1, 30 | (690 << 16))
+        user.PostMessageW(hwnd, 0x200, 1, 60 | (690 << 16))
+        user.PostMessageW(hwnd, 0x202, 0, 60 | (690 << 16))
+        assert float(snapshot("chrome-margin-pan")["pan_x"]) == 30
+        user.PostMessageW(hwnd, 0x200, 0, 170 | (675 << 16))
+        user.PostMessageW(hwnd, 0x201, 1, 170 | (675 << 16))
+        user.PostMessageW(hwnd, 0x200, 1, 220 | (675 << 16))
+        user.PostMessageW(hwnd, 0x202, 0, 220 | (675 << 16))
+        user.PostMessageW(hwnd, 0x20A, 120 << 16, 220 | (675 << 16))
+        values = snapshot("chrome-controls-block-canvas")
+        assert float(values["pan_x"]) == 30 and values["zoom"] == "100%"
+        print("PASS: windowed auto-hide, stable canvas, feedback/expiry, Tab recovery, focus/menu/drag retention, canvas beside controls")
     elif scenario:
         time.sleep(0.5)
         values = snapshot("state-" + scenario)
@@ -243,31 +352,33 @@ try:
         snapshot("16-small-window")
         user.SetWindowPos(hwnd, None, 0, 0, 1080, 740, 0x0006)
         time.sleep(0.3)
-        click(1040, 714)
+        more_menu()
         assert snapshot("17-more")["more"] == "true"
-        click(960, 616)
+        menu_row(64)
         assert snapshot("18-settings")["settings"] == "true"
         user.PostMessageW(hwnd,0x200,0,600 | (450 << 16))
         user.PostMessageW(hwnd,0x20A,((-720) & 0xffff) << 16,600 | (450 << 16))
         snapshot("18a-associations")
         key(0x1B)
         if "--clipboard" in sys.argv:
-            click(1040, 714)
+            more_menu()
             time.sleep(0.2)
-            click(940, 444)
+            menu_row(236)
             assert snapshot("19-copy-path")["status"] == "Path copied"
-            click(1040, 714)
+            more_menu()
             time.sleep(0.2)
-            click(940, 410)
+            menu_row(270)
             assert snapshot("20-copy-image")["status"] == "Image copied"
             print("PASS: native Copy Path and Copy Image (clipboard now contains the generated fixture)")
         print("PASS: CLI, next/first/last, natural order, zoom, rotation, flip, fullscreen, animation pause/resume, info, resize")
         # Focused toolbar controls activate with Space, rather than pausing the GIF.
-        click(556, 704)  # Fit
+        click(562, 698)  # Fit (animation adds a playback button to the bar).
+        assert snapshot("21-fit-before-tab")["fit_active"] == "true"
         key(0x09)        # Tab -> 100%
         assert snapshot("21-keyboard-focus")["focused"] == "true"
         key(0x20)
-        assert snapshot("22-keyboard-actual")["actual_active"] == "true"
+        values = snapshot("22-keyboard-actual")
+        assert values["actual_active"] == "true" and values["rotation"] == "0" and values["paused"] == "false"
         click(540, 370)  # Back to the canvas
         key(0x7A)
         time.sleep(0.4)
@@ -277,17 +388,17 @@ try:
         time.sleep(2.5)
         assert snapshot("23-fullscreen-hidden")["chrome"] == "false"
         user.PostMessageW(hwnd, 0x200, 0, 541 | (370 << 16))
-        assert snapshot("24-fullscreen-awake")["chrome"] == "true"
+        assert snapshot("24-fullscreen-awake", refresh=False)["chrome"] == "true"
         key(ord("I"))
         key(0x1B)
         assert snapshot("25-dismiss-info-in-fullscreen")["fullscreen"] == "true"
         key(0x1B)
-        click(1040, 704)
+        more_menu()
         click(400, 180)
         assert snapshot("26-dismiss-more")["more"] == "false"
         user.SetWindowPos(hwnd, None, 0, 0, 640, 420, 0x0006)
         snapshot("27-minimum-size")
-        click(606, 384)
+        more_menu()
         assert snapshot("28-small-more")["more"] == "true"
         key(0x1B)
         print("PASS: focus activation, fullscreen auto-hide/wake, layered Escape, dismissable menu, 640x420")

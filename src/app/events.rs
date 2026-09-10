@@ -6,17 +6,21 @@ impl App {
             return;
         };
         ui.set_chrome(true);
-        if ui.get_fullscreen() && self.settings.auto_hide {
+        self.hide_chrome.stop();
+        if ui.get_has_image() && !ui.get_loading() && self.settings.auto_hide {
             self.hide_chrome
                 .start(TimerMode::SingleShot, Duration::from_secs(2), || {
                     with_app(|app| {
                         if let Some(ui) = app.ui.upgrade()
-                            && ui.get_fullscreen()
+                            && app.settings.auto_hide
+                            && ui.get_has_image()
+                            && !ui.get_loading()
                             && !ui.get_show_more()
                             && !ui.get_show_info()
                             && !ui.get_show_settings()
                             && !ui.get_chrome_hovered()
                             && !ui.get_control_focused()
+                            && !app.pointer_down
                         {
                             ui.set_chrome(false);
                         }
@@ -47,12 +51,29 @@ impl App {
             WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 ui.set_keyboard_mode(true);
-                self.wake_chrome();
+                let action = input::shortcut(&event.logical_key, self.modifiers);
+                // Viewing shortcuts use feedback without uncovering the image.
+                // Tab and commands that open UI restore the controls first.
+                if ui.get_chrome()
+                    || action.is_none()
+                    || matches!(
+                        action,
+                        Some(
+                            Action::Open
+                                | Action::Info
+                                | Action::Settings
+                                | Action::Escape
+                                | Action::Fullscreen
+                        )
+                    )
+                {
+                    self.wake_chrome();
+                }
                 #[cfg(debug_assertions)]
                 if std::env::var_os("KOVA_TEST_CAPTURE").is_some() {
                     eprintln!("test input: {:?} {:?}", event.logical_key, self.modifiers);
                 }
-                if let Some(action) = input::shortcut(&event.logical_key, self.modifiers) {
+                if let Some(action) = action {
                     // Space activates the focused control, including toggles;
                     // otherwise it remains the viewer's playback shortcut.
                     if (ui.get_slider_focused()
@@ -102,6 +123,8 @@ impl App {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 ui.set_keyboard_mode(false);
+                self.pointer_down = *state == ElementState::Pressed;
+                self.wake_chrome();
                 if *state == ElementState::Released {
                     self.drag = None;
                 }
@@ -164,6 +187,7 @@ impl App {
             WindowEvent::Focused(false) => {
                 ui.set_keyboard_mode(false);
                 self.drag = None;
+                self.pointer_down = false;
                 self.modifiers = ModifiersState::empty();
             }
             _ => {}
@@ -176,10 +200,12 @@ impl App {
                 && self.cursor.0 < ui.get_viewport_left() + ui.get_viewport_width()
                 && self.cursor.1 >= ui.get_viewport_top()
                 && self.cursor.1 < ui.get_viewport_top() + ui.get_viewport_height()
-                && (!ui.get_fullscreen()
-                    || !ui.get_chrome()
-                    || (self.cursor.1 > ui.get_chrome_top()
-                        && self.cursor.1 < ui.get_viewport_height() - ui.get_chrome_bottom()))
+                && (!ui.get_fullscreen() || !ui.get_chrome() || self.cursor.1 > ui.get_chrome_top())
+                && (!ui.get_chrome()
+                    || self.cursor.0 < ui.get_controls_left()
+                    || self.cursor.0 >= ui.get_controls_left() + ui.get_controls_width()
+                    || self.cursor.1 < ui.get_controls_top()
+                    || self.cursor.1 >= ui.get_controls_top() + ui.get_controls_height())
         })
     }
 }

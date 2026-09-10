@@ -34,14 +34,14 @@ see it, and move through its folder. Kova Image is a viewer, not an editor.
 ## Screenshots
 
 <p align="center">
-  <img src="docs/images/empty.png" width="960" alt="Kova Image's dark start screen, compact titlebar, Open file button and grouped bottom controls">
-  <br><sub>A compact workspace. Your content takes the center.</sub>
+  <img src="docs/images/empty.png" width="960" alt="Kova Image's dark start screen, compact titlebar, Open file button and floating controls">
+  <br><sub>A compact titlebar and floating controls keep your content central.</sub>
 </p>
 
 | Images and animations | Local video |
 | :---: | :---: |
 | [![Image view with navigation, zoom and fit controls](docs/images/viewer.png)](docs/images/viewer.png) | [![Video playback with timeline, time and volume controls](docs/images/video.png)](docs/images/video.png) |
-| Fit, zoom, pan and view transforms | Play, pause, seek and volume |
+| Fit, zoom, pan and view transforms with brief action feedback | Play, pause, seek and volume with automatically hiding controls |
 
 These are captures from the running application, using original synthetic test
 files. No mock UI or personal media. Click an image to view it at full size.
@@ -68,7 +68,7 @@ color management, accessibility and hostile-file coverage need more validation.
 | Images | Fit, fit width, 100%, cursor-centered zoom, pan, rotation and horizontal/vertical flip |
 | Animation | GIF, animated WebP and APNG, with pause, timing, loops and bounded frame storage |
 | Video | Play/pause, timeline, current time/duration, mute/volume and optional loop |
-| Interface | Dark Kova surfaces, grouped controls, visible keyboard focus and fullscreen auto-hide |
+| Interface | Compact titlebar, floating controls with windowed/fullscreen auto-hide, action feedback and visible keyboard focus |
 | Windows | Copy image or path, Recycle Bin, Show in Explorer, Open with and opt-in app registration |
 
 Rotation and flips affect the view only. Copy Image copies the decoded frame
@@ -173,6 +173,11 @@ keys. Left/Right otherwise navigate the same mixed-media folder.
 The More panel contains Windows actions and settings. Shortcuts are defined in
 `src/input.rs`. Wheel navigation can replace wheel zoom in Settings.
 Settings live in `%LOCALAPPDATA%\Kova Image\settings.conf`.
+
+Viewing controls float over the image and hide after two seconds of inactivity.
+Move the pointer or press Tab to bring them back; the windowed titlebar stays
+available. Zoom, playback and volume shortcuts show brief feedback even with
+the controls hidden. Auto-hide can be disabled in Settings.
 
 ## Performance philosophy
 

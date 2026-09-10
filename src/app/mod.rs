@@ -86,9 +86,11 @@ struct App {
     animation: Timer,
     hide_chrome: Timer,
     notice: Timer,
+    feedback_timer: Timer,
     modifiers: ModifiersState,
     cursor: (f32, f32),
     drag: Option<(f32, f32)>,
+    pointer_down: bool,
     started: Instant,
     measure: Option<PathBuf>,
     first_reported: bool,
@@ -201,9 +203,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         animation: Timer::default(),
         hide_chrome: Timer::default(),
         notice: Timer::default(),
+        feedback_timer: Timer::default(),
         modifiers: ModifiersState::empty(),
         cursor: (0., 0.),
         drag: None,
+        pointer_down: false,
         started,
         measure,
         first_reported: false,
@@ -219,6 +223,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     ui.on_seek(|fraction| with_app(|app| app.seek_video(f64::from(fraction), true)));
     ui.on_volume_change(|volume| with_app(|app| app.audio_video(f64::from(volume), false)));
     ui.on_setting(|name, value| with_app(|app| app.setting(&name, value)));
+    ui.on_activity(|| with_app(|app| app.wake_chrome()));
     let weak = ui.as_weak();
     ui.on_drag_window(move || {
         if let Some(ui) = weak.upgrade() {
@@ -278,6 +283,24 @@ mod video;
 use shell::shell_job;
 
 impl App {
+    fn feedback(&self, text: impl Into<slint::SharedString>) {
+        if let Some(ui) = self.ui.upgrade()
+            && ui.get_has_image()
+            && !ui.get_loading()
+            && ui.get_error_title().is_empty()
+        {
+            ui.set_feedback(text.into());
+            self.feedback_timer
+                .start(TimerMode::SingleShot, Duration::from_millis(1400), || {
+                    with_app(|app| {
+                        if let Some(ui) = app.ui.upgrade() {
+                            ui.set_feedback("".into());
+                        }
+                    });
+                });
+        }
+    }
+
     fn status(&self, text: impl Into<slint::SharedString>) {
         if let Some(ui) = self.ui.upgrade() {
             ui.set_status(text.into());
@@ -309,6 +332,7 @@ impl App {
             }
         };
         self.animation.stop();
+        self.feedback_timer.stop();
         self.pending_video = None;
         if let Some(player) = &self.video {
             player.stop();
@@ -318,6 +342,7 @@ impl App {
         self.video_kind = None;
         if let Some(ui) = self.ui.upgrade() {
             ui.set_is_video(false);
+            ui.set_feedback("".into());
         }
         self.playback = Playback::default();
         self.paused = !self.settings.autoplay;
@@ -334,6 +359,7 @@ impl App {
             ui.set_show_more(false);
         }
         self.update_navigation();
+        self.wake_chrome();
     }
     fn event(&mut self, event: Event) {
         match event {
@@ -372,6 +398,7 @@ impl App {
                         self.update_view();
                         self.schedule();
                         self.update_info();
+                        self.wake_chrome();
                         if !self.render_notifications {
                             self.image_ready_without_notifier();
                         }
