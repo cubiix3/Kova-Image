@@ -1,5 +1,6 @@
 import { Palette, ScrollView } from "std-widgets.slint";
 import { Theme, Interaction } from "theme.slint";
+export { Theme }
 import { Tool, Rule, Divider, Group, ToggleRow } from "controls.slint";
 import { Track } from "track.slint";
 import { Icons } from "icons.slint";
@@ -45,6 +46,8 @@ export component ViewerWindow inherits Window {
     in property <bool> animated;
     in property <bool> paused;
     in property <bool> light-background;
+    in property <bool> high-contrast: false;
+    in property <bool> reduce-motion: false;
     in-out property <bool> pixelated;
     in-out property <bool> show-more;
     in-out property <bool> show-info;
@@ -102,7 +105,7 @@ export component ViewerWindow inherits Window {
         y: root.fullscreen ? 0px : Theme.header-height;
         height: root.height - self.y;
         width: root.width;
-        background: root.light-background && root.has-image ? #cfd3d8 : Theme.canvas;
+        background: !root.high-contrast && root.light-background && root.has-image ? #cfd3d8 : Theme.canvas;
         clip: true;
         canvas-focus := FocusScope {
             enabled: !root.modal && !root.show-more;
@@ -159,7 +162,7 @@ export component ViewerWindow inherits Window {
         x: 0px; y: 0px; width: root.width; height: Theme.header-height;
         background: Theme.surface; opacity: !root.fullscreen || root.chrome ? 1 : 0;
         visible: self.opacity > 0;
-        animate opacity { duration: 120ms; }
+        animate opacity { duration: root.reduce-motion ? 0ms : 120ms; }
         header-touch := TouchArea {
             enabled: root.header-enabled;
             pointer-event(event) => { if event.kind == PointerEventKind.down && event.button == PointerEventButton.left { root.drag-window(); } }
@@ -193,7 +196,7 @@ export component ViewerWindow inherits Window {
         height: root.bar-height; border-radius: 16px;
         border-width: 1px; border-color: Theme.stroke;
         background: Theme.surface; opacity: root.chrome ? 1 : 0; visible: self.opacity > 0;
-        animate opacity { duration: 120ms; }
+        animate opacity { duration: root.reduce-motion ? 0ms : 120ms; }
         bar-touch := TouchArea { enabled: root.tools-enabled; }
         HorizontalLayout {
             padding: 12px; spacing: root.compact ? 6px : 10px;

@@ -77,7 +77,7 @@ Private reporting is documented in the root security policy.
 
 Videos are limited to 32 GiB local regular files, 16,777,216 native pixels,
 8,192 pixels per side and seven days of finite duration. Presentation buffers
-are capped at 1920 x 1080. The Media Engine can parse/allocate before reporting
+fit the window and are capped at 3840 x 2160. The Media Engine can parse/allocate before reporting
 native dimensions: this is not an OS decoder allocation cap or a sandbox.
 
 A retained read-only file handle denies writes/deletion during playback. The

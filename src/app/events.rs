@@ -178,12 +178,14 @@ impl App {
                     .with_winit_window(|w| w.is_minimized().unwrap_or(false))
                     .unwrap_or(false);
                 self.schedule();
+                self.note_viewport();
                 let _ = slint::invoke_from_event_loop(|| with_app(|app| app.update_view()));
             }
             WindowEvent::Occluded(hidden) => {
                 self.hidden = *hidden;
                 self.schedule();
             }
+            WindowEvent::Focused(true) => self.apply_desktop(),
             WindowEvent::Focused(false) => {
                 ui.set_keyboard_mode(false);
                 self.drag = None;
@@ -193,6 +195,13 @@ impl App {
             _ => {}
         }
         false
+    }
+    pub(super) fn note_viewport(&mut self) {
+        let (width, height) = self.presentation_viewport();
+        if let Some(player) = &self.video {
+            player.viewport(width, height);
+        }
+        self.ensure_detail();
     }
     pub(super) fn in_canvas(&self) -> bool {
         self.ui.upgrade().is_some_and(|ui| {

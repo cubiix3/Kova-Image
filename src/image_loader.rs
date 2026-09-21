@@ -1,6 +1,6 @@
 use crate::{
     cache::Cache,
-    decoder::{self, Decoded, Stamp},
+    decoder::{self, Decoded, Stamp, Target},
     error::Error,
     folder_navigation,
     security::{self, Generation, Ticket},
@@ -24,6 +24,7 @@ pub enum Event {
         result: Result<Arc<Decoded>, Error>,
         elapsed: std::time::Duration,
         cached: bool,
+        preview: bool,
     },
     Folder {
         id: u64,
@@ -37,6 +38,7 @@ struct Request {
     neighbors: Vec<PathBuf>,
     scan: bool,
     natural: bool,
+    target: Target,
 }
 #[derive(Default)]
 struct Mailbox {
@@ -82,6 +84,7 @@ impl Loader {
                         mut neighbors,
                         scan,
                         natural,
+                        target,
                     } = request;
                     let start = Instant::now();
                     let video = crate::media::video_extension(&path)
@@ -96,7 +99,19 @@ impl Loader {
                             });
                         }
                     } else {
-                        let (result, cached) = cached_load(&mut cache, &path, &ticket);
+                        let (result, cached) =
+                            cached_load(&mut cache, &path, &ticket, target, |image| {
+                                if ticket.is_current() {
+                                    deliver(Event::Image {
+                                        id: ticket.id,
+                                        path: path.clone(),
+                                        result: Ok(image),
+                                        elapsed: start.elapsed(),
+                                        cached: false,
+                                        preview: true,
+                                    });
+                                }
+                            });
                         if !ticket.is_current() {
                             continue;
                         }
@@ -106,6 +121,7 @@ impl Loader {
                             result,
                             elapsed: start.elapsed(),
                             cached,
+                            preview: false,
                         });
                     }
                     if scan && ticket.is_current() {
@@ -133,7 +149,7 @@ impl Loader {
                             break;
                         }
                         // The same admission limits apply to speculative decodes.
-                        let _ = cached_load(&mut cache, &neighbor, &ticket);
+                        let _ = cached_load(&mut cache, &neighbor, &ticket, target, |_| {});
                     }
                 }
             })?;
@@ -149,6 +165,7 @@ impl Loader {
         neighbors: Vec<PathBuf>,
         scan: bool,
         natural: bool,
+        target: Target,
     ) -> u64 {
         let ticket = self.generation.next();
         let id = ticket.id;
@@ -160,6 +177,7 @@ impl Loader {
                 neighbors,
                 scan,
                 natural,
+                target,
             });
             signal.notify_one();
         }
@@ -184,6 +202,8 @@ fn cached_load(
     cache: &mut Cache,
     path: &std::path::Path,
     ticket: &Ticket,
+    target: Target,
+    mut preview: impl FnMut(Arc<Decoded>),
 ) -> (Result<Arc<Decoded>, Error>, bool) {
     if let Err(e) = ticket.check() {
         return (Err(e), false);
@@ -192,10 +212,10 @@ fn cached_load(
         Ok(s) => s,
         Err(e) => return (Err(e), false),
     };
-    if let Some(image) = cache.get(path, &stamp) {
+    if let Some(image) = cache.get_for(path, &stamp, target) {
         return (Ok(image), true);
     }
-    match decoder::load(path, ticket) {
+    match decoder::load_target(path, ticket, target, &mut |image| preview(Arc::new(image))) {
         Ok(image) => {
             let image = Arc::new(image);
             cache.insert(path.to_path_buf(), image.clone());

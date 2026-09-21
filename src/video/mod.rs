@@ -37,6 +37,8 @@ struct Desired {
     volume: f64,
     looping: bool,
     hidden: bool,
+    view_w: u32,
+    view_h: u32,
     seek: Option<f64>,
     quit: bool,
     stopped: Option<std::sync::mpsc::SyncSender<()>>,
@@ -57,6 +59,8 @@ impl Player {
                 volume: 0.7,
                 looping: false,
                 hidden: false,
+                view_w: 1920,
+                view_h: 1080,
                 seek: None,
                 quit: false,
                 stopped: None,
@@ -77,15 +81,35 @@ impl Player {
             wake.notify_one();
         }
     }
-    pub fn open(&self, id: u64, source: VideoSource, autoplay: bool, looping: bool) {
+    pub fn open(
+        &self,
+        id: u64,
+        source: VideoSource,
+        autoplay: bool,
+        looping: bool,
+        view: (u32, u32),
+    ) {
         self.change(|s| {
             s.id = id;
             s.source = Some(source);
             s.revision = s.revision.wrapping_add(1);
             s.paused = !autoplay;
             s.looping = looping;
+            s.view_w = view.0.max(1);
+            s.view_h = view.1.max(1);
             s.seek = None;
         });
+    }
+    /// Resize the presentation without restarting playback.
+    pub fn viewport(&self, width: u32, height: u32) {
+        let (lock, wake) = &*self.shared;
+        if let Ok(mut s) = lock.lock()
+            && (s.view_w != width.max(1) || s.view_h != height.max(1))
+        {
+            s.view_w = width.max(1);
+            s.view_h = height.max(1);
+            wake.notify_one();
+        }
     }
     pub fn stop(&self) {
         self.change(|s| {
@@ -227,7 +251,7 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
                 controls = desired.controls;
             }
             let frame = if !desired.hidden {
-                e.frame(&state)?
+                e.frame(&state, desired.view_w, desired.view_h)?
             } else {
                 None
             };
@@ -271,13 +295,17 @@ pub fn validate_dimensions(w: u32, h: u32) -> Result<(), Error> {
     }
     Ok(())
 }
-pub fn presentation_size(w: u32, h: u32) -> (u32, u32) {
-    let scale = (1920.0 / w.max(1) as f64)
-        .min(1080.0 / h.max(1) as f64)
+/// Fit the source inside the window without enlarging it. 3840×2160 is the
+/// presentation memory ceiling, including on a larger monitor.
+pub fn presentation_size(w: u32, h: u32, view_w: u32, view_h: u32) -> (u32, u32) {
+    let max_w = view_w.clamp(1, 3840);
+    let max_h = view_h.clamp(1, 2160);
+    let scale = (f64::from(max_w) / f64::from(w.max(1)))
+        .min(f64::from(max_h) / f64::from(h.max(1)))
         .min(1.0);
     (
-        (w as f64 * scale).round().max(1.0) as u32,
-        (h as f64 * scale).round().max(1.0) as u32,
+        (f64::from(w) * scale).round().clamp(1.0, f64::from(max_w)) as u32,
+        (f64::from(h) * scale).round().clamp(1.0, f64::from(max_h)) as u32,
     )
 }
 pub fn time_label(seconds: f64) -> String {
@@ -297,8 +325,10 @@ mod tests {
     use super::*;
     #[test]
     fn bounded_presentation_and_time() {
-        assert_eq!(presentation_size(3840, 2160), (1920, 1080));
-        assert_eq!(presentation_size(400, 240), (400, 240));
+        assert_eq!(presentation_size(3840, 2160, 1920, 1080), (1920, 1080));
+        assert_eq!(presentation_size(3840, 2160, 2560, 1440), (2560, 1440));
+        assert_eq!(presentation_size(7680, 4320, 5000, 3000), (3840, 2160));
+        assert_eq!(presentation_size(400, 240, 2560, 1440), (400, 240));
         assert!(validate_dimensions(u32::MAX, 9).is_err());
         assert_eq!(time_label(f64::NAN), "0:00");
         assert_eq!(time_label(3661.0), "1:01:01");
