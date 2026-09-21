@@ -29,8 +29,8 @@
 
 ## What is Kova Image?
 
-A standalone, native Windows image, animation and local video viewer in the
-[Kova product family](https://github.com/cubiix3/Kova-File-Manager). Built with **Rust, Slint and official Windows APIs**. Open a file,
+A standalone, native Windows image, animation and local video viewer, alongside
+[Kova Screen](https://github.com/cubiix3/Kova-Screen). Built with **Rust, Slint and official Windows APIs**. Open a file,
 see it, and move through its folder. Kova Image is a viewer, not an editor.
 
 ## Screenshots
@@ -81,17 +81,17 @@ an independent window; there is no single-instance IPC service.
 
 | Format | Current implementation |
 | --- | --- |
-| JPEG / JPG | Still image; EXIF orientation applied |
+| JPEG / JPG | Still image; EXIF orientation applied. An embedded ICC profile is converted to sRGB |
 | PNG | Still image |
 | GIF | Animation, timing, loops, transparency and disposal |
 | WebP | Still and animated |
+| AVIF | Still image, via dav1d. Large files are admitted only within the existing pixel and memory limits |
 | APNG | Animation, timing, loops, blending and disposal |
 | BMP | Still image |
 | TIFF | First image/page |
 | ICO | Decoder-selected icon image |
 | MP4 / M4V, MOV, MKV | Windows codecs; H.264/AAC tested in MP4, MOV and MKV |
 | WebM | Windows codec dependent; VP8/VP9 samples fail gracefully on the test machine without a matching decoder |
-| AVIF | Planned; no decoder shipped yet |
 | HEIC/HEIF, JPEG XL, SVG, RAW | Not supported; evaluation remains on the roadmap |
 
 Decoders validate file contents. Extensions filter folder navigation and the
@@ -197,13 +197,18 @@ the next/previous image. Folder scanning and Shell operations stay off the UI th
 
 The weighted LRU retains at most **192 MiB of pixel data and 32 entries**.
 Displayed pixels, decoder scratch space and GPU textures cost additional memory;
-this is not a process-RAM cap. Animated images are currently collected within a
-bounded budget before playback. Scaled decoding and streaming animation are future work.
+this is not a process-RAM cap. Still images and animations are fitted to the
+pixels the current view needs, then cached at that size. Choosing 100% or
+zooming past the retained bitmap decodes the original again. The first frame
+of an animation is shown while the remaining frames are still being collected.
+Codecs still allocate their full canvas before that fit; the retained bitmap
+is what shrinks.
 
 Video initializes its own worker on demand. Media Foundation owns audio/video
 timing; a bounded mailbox retains the latest pending frame. Pixel-buffer
 preparation runs on the worker, with D3D readback and Slint upload as explicit
-costs. Presentation is capped at **1920 x 1080**. Minimizing pauses video and audio.
+costs. Presentation follows the window and is capped at **3840 x 2160**, without
+enlarging a smaller source. Minimizing pauses video and audio.
 
 [Measurement protocol](docs/PERFORMANCE.md) -
 [Recorded startup, video CPU and RAM](docs/VIDEO_MEASUREMENTS.md) -
@@ -225,8 +230,7 @@ privately through GitHub Security Advisories.
 
 ## Roadmap
 
-- [AVIF decoding](https://github.com/cubiix3/Kova-Image/issues/3) with an acceptable license, bounded memory and repeatable builds.
-- [Progressive/scaled decode and streaming animations](https://github.com/cubiix3/Kova-Image/issues/4), with measured navigation tuning.
+- [Progressive decode inside the codec and measured navigation tuning](https://github.com/cubiix3/Kova-Image/issues/4). Display-sized retention and a first animation frame are implemented; JPEG, PNG and AVIF still decode a full canvas before fitting.
 - [Fuzzing and stronger file identity checks](https://github.com/cubiix3/Kova-Image/issues/6), including decoder isolation evaluation.
 - [Validated portable packages and an installer](https://github.com/cubiix3/Kova-Image/issues/5), with signing and opt-in file associations.
 - Broader GPU/DPI/accessibility validation and color-management evaluation.
@@ -241,7 +245,7 @@ Architecture and current tradeoffs are described in [docs/ARCHITECTURE.md](docs/
 
 ## License
 
-MIT OR Apache-2.0, matching [Kova File](https://github.com/cubiix3/Kova-File-Manager).
+MIT OR Apache-2.0.
 See [LICENSE](LICENSE), [LICENSE-MIT](LICENSE-MIT), and
 [LICENSE-APACHE](LICENSE-APACHE). Dependencies retain their own licenses.
 

@@ -1,8 +1,7 @@
 # Third-party notices
 
-Kova Image's original code is MIT OR Apache-2.0, matching Kova File.
-The Kova logo and application icon come from the sister project
-[Kova File](https://github.com/cubiix3/Kova-File-Manager), copyright 2026 Kova
+Kova Image's original code is MIT OR Apache-2.0.
+The Kova logo and application icon are part of this project, copyright 2026 Kova
 Contributors, under the same dual license. No ImageGlass assets are used.
 
 Built with [Slint](https://slint.dev). Slint 1.17.1 offers GPL-3.0-only,
