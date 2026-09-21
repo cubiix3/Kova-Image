@@ -290,6 +290,39 @@ fn animated_webp_frames_and_loops() {
     assert_eq!(&image.frames[1].rgba[..4], &[0, 0, 255, 255]);
 }
 #[test]
+fn display_target_shrinks_the_retained_bitmap() {
+    let temp = Temp::new();
+    let image = DynamicImage::ImageRgba8(RgbaImage::from_fn(80, 40, |x, _| {
+        image::Rgba([x as u8, 20, 40, 255])
+    }));
+    let mut bytes = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+        .unwrap();
+    let path = temp.write("wide.png", &bytes);
+    let full = decoder::load(&path, &Generation::default().next()).unwrap();
+    assert_eq!((full.source_width, full.source_height), (80, 40));
+    assert_eq!((full.width, full.height), (80, 40));
+    let fitted = decoder::load_target(
+        &path,
+        &Generation::default().next(),
+        decoder::Target {
+            max_width: 20,
+            max_height: 10,
+        },
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!((fitted.source_width, fitted.source_height), (80, 40));
+    assert_eq!((fitted.width, fitted.height), (20, 10));
+    assert!(fitted.serves(decoder::Target {
+        max_width: 20,
+        max_height: 10
+    }));
+    assert!(!fitted.serves(decoder::Target::full()));
+    assert_eq!(fitted.frames[0].rgba.len(), 20 * 10 * 4);
+}
+#[test]
 fn cancelled_decode_and_folder_scan() {
     let temp = Temp::new();
     let path = temp.write("image.png", &encoded(ImageFormat::Png));
@@ -316,13 +349,19 @@ fn latest_worker_request_and_recovery() {
         let _ = tx.send(event);
     })
     .unwrap();
-    let missing = loader.request(temp.0.join("missing.png"), vec![], false, true);
+    let missing = loader.request(
+        temp.0.join("missing.png"),
+        vec![],
+        false,
+        true,
+        decoder::Target::full(),
+    );
     let event = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
     assert!(matches!(event,Event::Image {id,result:Err(Error::NotFound),..} if id==missing));
     for _ in 0..100 {
-        loader.request(good.clone(), vec![], false, true);
+        loader.request(good.clone(), vec![], false, true, decoder::Target::full());
     }
-    let latest = loader.request(good.clone(), vec![], true, true);
+    let latest = loader.request(good.clone(), vec![], true, true, decoder::Target::full());
     loop {
         let event = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
         if let Event::Image {

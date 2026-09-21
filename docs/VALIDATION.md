@@ -65,11 +65,13 @@ captures are published in documentation. See [DESIGN.md](DESIGN.md).
 - Native OLE drag/drop, the picker, Explorer/Open with, clipboard interoperability
   with other applications, touchpad and physical multi-monitor DPI need broader
   hands-on testing. They are not marked as manually validated by the smoke test.
-- Full-resolution decoding and full bounded animation collection remain the
-  initial policy. No progressive/scaled decode or animated-image streaming yet.
-- AVIF, HEIC/HEIF, JPEG XL, SVG and RAW are absent.
-- Color-managed output/HDR, complex format corpus coverage, fuzzing and decoder
-  process isolation are future work.
+- Display-sized retention is implemented after the codec's full canvas decode.
+  Codec-level progressive or DCT-scaled decode is not. Animation shows its first
+  fitted frame while later frames are still collected.
+- AVIF, HEIC/HEIF, JPEG XL, SVG and RAW are absent. AVIF's official decoder
+  needs a system dav1d or a Meson build, which the locked toolchain does not provide.
+- Embedded ICC profiles are converted to sRGB. Monitor profiles, HDR and a wide
+  color corpus are not. Fuzzing and decoder process isolation remain future work.
 - Cache budgets do not include every decoder scratch allocation, copied renderer
   frame or GPU texture. There is no hard total-process memory guarantee.
 - Shell operations have path-based race limitations; see security architecture.

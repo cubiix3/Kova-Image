@@ -96,6 +96,7 @@ impl App {
                 source,
                 self.settings.video_autoplay,
                 self.settings.video_loop,
+                self.presentation_viewport(),
             );
         }
     }

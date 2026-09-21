@@ -1,4 +1,4 @@
-use crate::decoder::{Decoded, Stamp};
+use crate::decoder::{Decoded, Stamp, Target};
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
@@ -22,10 +22,17 @@ impl Cache {
         self.used
     }
     pub fn get(&mut self, path: &Path, stamp: &Stamp) -> Option<Arc<Decoded>> {
+        self.get_for(path, stamp, Target::full())
+    }
+    pub fn get_for(&mut self, path: &Path, stamp: &Stamp, target: Target) -> Option<Arc<Decoded>> {
         let index = self.entries.iter().position(|(p, _)| p == path)?;
         let entry = self.entries.remove(index)?;
         if &entry.1.stamp != stamp {
             self.used -= entry.1.weight();
+            return None;
+        }
+        if !entry.1.serves(target) {
+            self.entries.push_back(entry);
             return None;
         }
         let result = entry.1.clone();

@@ -51,6 +51,7 @@ impl App {
                     _ => kova_image::viewer::Fit::Actual,
                 });
                 self.update_view();
+                self.ensure_detail();
                 self.feedback(match action {
                     Fit => "Fit to window",
                     FitWidth => "Fit to width",
@@ -152,6 +153,19 @@ impl App {
             Close => {
                 let _ = slint::quit_event_loop();
             }
+            CopyImage
+                if self.image.as_ref().is_some_and(|image| {
+                    image.frames.len() == 1 && !image.serves(kova_image::decoder::Target::full())
+                }) =>
+            {
+                self.pending_copy = true;
+                self.ensure(kova_image::decoder::Target::full());
+                if !self.refining {
+                    self.pending_copy = false;
+                    self.send_shell(CopyImage, None);
+                }
+            }
+            Undo => self.send_shell(Undo, None),
             Open | CopyImage | CopyPath | Delete | Reveal | OpenWith | Register | DefaultApps => {
                 self.send_shell(action, None)
             }
