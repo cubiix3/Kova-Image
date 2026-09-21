@@ -234,7 +234,12 @@ impl Engine {
         }
         Ok(())
     }
-    pub fn frame(&mut self, state: &VideoState) -> Result<Option<Frame>, Error> {
+    pub fn frame(
+        &mut self,
+        state: &VideoState,
+        view_w: u32,
+        view_h: u32,
+    ) -> Result<Option<Frame>, Error> {
         // SAFETY: textures are worker-owned and match the validated dimensions.
         // Map/Unmap bound the lifetime of the readback pointer; each row respects
         // RowPitch. Only the bounded presentation image is copied to the UI.
@@ -248,7 +253,7 @@ impl Engine {
                 return Ok(None);
             }
             result.ok().map_err(fail)?;
-            let (w, h) = super::presentation_size(state.width, state.height);
+            let (w, h) = super::presentation_size(state.width, state.height, view_w, view_h);
             if self.size != (w, h) {
                 let desc = D3D11_TEXTURE2D_DESC {
                     Width: w,

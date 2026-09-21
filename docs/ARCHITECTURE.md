@@ -42,7 +42,9 @@ Frames are decoded/composited by image-rs, not the UI. GIF loop extensions are
 parsed structurally to distinguish no extension, infinite repetition and finite
 additional repetitions. APNG/WebP supply total loop counts. The UI uses a
 single-shot timer per frame; no animation polling runs while idle or paused.
-Animation storage is bounded, but currently fully collected before presentation.
+Animation storage is bounded. The first composited frame is delivered as soon
+as it is fitted, and later frames append while that generation is still current.
+A one-frame file is not announced twice.
 
 The renderer uploads one current RGBA frame to Slint. Cache entries and the app
 share an Arc of decoded frames. Renderer copies and textures are accounted for

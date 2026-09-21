@@ -10,10 +10,14 @@ impl App {
             self.status("A Windows operation is already in progress");
             return;
         }
+        if action == Action::Undo && self.undo.is_none() {
+            self.status("Nothing to restore");
+            return;
+        }
         if settings.is_none()
             && !matches!(
                 action,
-                Action::Open | Action::Register | Action::DefaultApps
+                Action::Open | Action::Register | Action::DefaultApps | Action::Undo
             )
             && ((self.image.is_none() && self.video_stamp.is_none())
                 || self.displayed != self.requested)
@@ -57,7 +61,21 @@ impl App {
                 .or_else(|| self.image.as_ref().map(|i| i.stamp.clone())),
             stopped,
             settings,
+            recycled: self.undo.as_ref().map(|undo| undo.recycled.clone()),
         };
+        if action == Action::Undo
+            && let Some(undo) = &self.undo
+        {
+            let mut job = job;
+            job.path = Some(undo.original.clone());
+            job.recycled = Some(undo.recycled.clone());
+            if self.shell.try_send(job).is_ok() {
+                self.shell_busy = true;
+            } else {
+                self.status("Windows worker unavailable");
+            }
+            return;
+        }
         if self.shell.try_send(job).is_ok() {
             self.shell_busy = true;
         } else {
@@ -76,7 +94,16 @@ impl App {
             Ok(ShellResult::Open(Some(path))) => self.open(path, true),
             Ok(ShellResult::Open(None)) => {}
             Ok(ShellResult::Done(message)) => self.status(message),
-            Ok(ShellResult::Deleted(path)) => {
+            Ok(ShellResult::Restored(path)) => {
+                self.undo = None;
+                self.open(path, true);
+                self.status("Restored from the Recycle Bin");
+            }
+            Ok(ShellResult::Deleted { path, recycled }) => {
+                self.undo = recycled.map(|recycled| RecycleUndo {
+                    original: path.clone(),
+                    recycled,
+                });
                 self.nav.files.retain(|p| p != &path);
                 if self.requested.as_ref() == Some(&path) {
                     self.animation.stop();
@@ -100,8 +127,12 @@ impl App {
                             ui.set_error_detail("".into());
                         }
                         self.update_navigation();
-                        self.status("Moved to Recycle Bin");
                     }
+                }
+                if self.undo.is_some() {
+                    self.status("Moved to the Recycle Bin. Ctrl+Z restores it.");
+                } else if self.requested.is_none() {
+                    self.status("Moved to the Recycle Bin");
                 }
             }
             Err(e) => {
@@ -156,8 +187,13 @@ pub(super) fn shell_job(job: ShellJob) -> Result<ShellResult, Error> {
                     .map_err(|_| Error::Io("Playback is still closing. Try again.".into()))?;
             }
             let stamp = job.stamp.ok_or(Error::NotFound)?;
-            native::recycle(job.owner, &path, &stamp)?;
-            Ok(ShellResult::Deleted(path))
+            let recycled = native::recycle(job.owner, &path, &stamp)?;
+            Ok(ShellResult::Deleted { path, recycled })
+        }
+        Action::Undo => {
+            let recycled = job.recycled.ok_or(Error::NotFound)?;
+            native::restore(job.owner, &recycled, &path)?;
+            Ok(ShellResult::Restored(path))
         }
         Action::Reveal => {
             native::reveal(&path)?;

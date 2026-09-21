@@ -42,10 +42,10 @@ plus a synthetic type hint; locally registered MF plugins are disabled.
 
 Native dimensions are checked when available: maximum 8,192 per side and
 16,777,216 pixels; duration must be finite, positive and at most seven days.
-The presentation surface is capped at 1920 x 1080, preserving aspect ratio.
-Larger admitted videos therefore display a downscaled preview, including in
-fullscreen. D3D staging readback and Slint upload are CPU copies, not zero-copy.
-Each maximum RGBA presentation buffer is about 7.9 MiB; native decoded surfaces,
+The presentation surface fits the current window and is capped at 3840 x 2160,
+preserving aspect ratio and never enlarging a smaller source. A larger monitor
+still receives at most a 4K presentation buffer. D3D staging readback and Slint upload are CPU copies, not zero-copy.
+Each maximum RGBA presentation buffer is about 33 MiB at 3840 × 2160; native decoded surfaces,
 staging, the pending frame and renderer textures are additional memory costs.
 
 Native codecs may allocate before reporting dimensions. These are application

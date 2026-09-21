@@ -5,7 +5,7 @@ actions without resembling an editor or a media library.
 
 ## Design system
 
-`ui/theme.slint` owns the palette and shared metrics. It retains Kova File's
+`ui/theme.slint` owns the palette and shared metrics. It keeps the Kova
 cyan identity and Segoe UI typography while using darker, more neutral surfaces
 appropriate for viewing images.
 
@@ -105,8 +105,10 @@ DWM, retaining native maximized/fullscreen behavior and older-Windows fallback.
 ## Remaining visual validation
 
 - Physical multi-monitor 125–200% DPI transitions, touchpads and screen readers.
-- Windows high-contrast/reduced-motion preferences are not yet integrated into
-  the custom theme; the design does not claim full accessibility conformance.
+- Windows high contrast replaces the theme surfaces and text with the system
+  window, window-text, highlight and gray colors. Reduced motion sets the
+  chrome fade to zero. Screen readers, Narrator and a complete high-contrast
+  pass over every hardcoded accent are not claimed.
 - Native file picker and Explorer/Open With surfaces retain Windows styling.
 - More codec profiles, native video orientation and device-loss recovery need validation.
 

@@ -52,11 +52,20 @@ struct ShellJob {
     stamp: Option<kova_image::decoder::Stamp>,
     stopped: Option<mpsc::Receiver<()>>,
     settings: Option<Settings>,
+    recycled: Option<PathBuf>,
 }
 enum ShellResult {
     Open(Option<PathBuf>),
-    Deleted(PathBuf),
+    Deleted {
+        path: PathBuf,
+        recycled: Option<PathBuf>,
+    },
+    Restored(PathBuf),
     Done(&'static str),
+}
+struct RecycleUndo {
+    original: PathBuf,
+    recycled: PathBuf,
 }
 struct App {
     ui: slint::Weak<ViewerWindow>,
@@ -96,6 +105,10 @@ struct App {
     first_reported: bool,
     render_contains_image: bool,
     render_notifications: bool,
+    refining: bool,
+    preview_id: Option<u64>,
+    pending_copy: bool,
+    undo: Option<RecycleUndo>,
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -213,6 +226,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         first_reported: false,
         render_contains_image: false,
         render_notifications: false,
+        refining: false,
+        preview_id: None,
+        pending_copy: false,
+        undo: None,
     }));
     APP.with(|slot| *slot.borrow_mut() = Some(app.clone()));
     ui.on_command(|name| {
@@ -257,6 +274,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .is_ok();
     app.borrow_mut().render_notifications = notifications;
     app.borrow().sync_settings();
+    app.borrow().apply_desktop();
     ui.show()?;
     ui.window().with_winit_window(|w| {
         if let Ok(h) = w.window_handle()
@@ -347,9 +365,16 @@ impl App {
         self.playback = Playback::default();
         self.paused = !self.settings.autoplay;
         self.requested = Some(path.clone());
-        self.id = self
-            .loader
-            .request(path, self.nav.neighbors(), scan, self.settings.natural_sort);
+        self.refining = false;
+        self.preview_id = None;
+        self.pending_copy = false;
+        self.id = self.loader.request(
+            path,
+            self.nav.neighbors(),
+            scan,
+            self.settings.natural_sort,
+            self.open_target(),
+        );
         if let Some(ui) = self.ui.upgrade() {
             ui.set_error_title("".into());
             ui.set_error_detail("".into());
@@ -373,43 +398,33 @@ impl App {
                 result,
                 elapsed,
                 cached,
+                preview,
             } if id == self.id => {
                 let Some(ui) = self.ui.upgrade() else {
                     return;
                 };
-                ui.set_loading(false);
                 match result {
                     Ok(image) => {
-                        self.view.reset(self.settings.fit);
-                        self.displayed = Some(path.clone());
-                        self.image = Some(image);
-                        self.playback = Playback::default();
-                        self.paused = !self.settings.autoplay;
-                        ui.set_filename(
-                            path.file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .as_ref()
-                                .into(),
-                        );
-                        ui.set_has_image(true);
-                        ui.set_status("".into());
-                        self.frame();
-                        self.update_view();
-                        self.schedule();
-                        self.update_info();
-                        self.wake_chrome();
-                        if !self.render_notifications {
-                            self.image_ready_without_notifier();
+                        let keep = (self.refining && self.displayed.as_ref() == Some(&path))
+                            || (!preview && self.preview_id == Some(id));
+                        if preview {
+                            self.preview_id = Some(id);
+                        } else {
+                            self.preview_id = None;
+                            self.refining = false;
                         }
-                        #[cfg(debug_assertions)]
-                        eprintln!(
-                            "load: {:.2}ms, cache={cached}",
-                            elapsed.as_secs_f64() * 1000.
-                        );
-                        let _ = (elapsed, cached);
+                        self.show_image(path, image, !keep, preview, elapsed, cached);
                     }
                     Err(error) => {
+                        let refining = self.refining;
+                        self.refining = false;
+                        self.pending_copy = false;
+                        self.preview_id = None;
+                        ui.set_loading(false);
+                        if refining && self.displayed.is_some() {
+                            self.status(error.to_string());
+                            return;
+                        }
                         self.image = None;
                         self.displayed = None;
                         ui.set_picture(slint::Image::default());

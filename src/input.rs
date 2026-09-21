@@ -26,6 +26,7 @@ pub enum Action {
     CopyImage,
     CopyPath,
     Delete,
+    Undo,
     Info,
     Settings,
     Reveal,
@@ -49,6 +50,7 @@ pub fn shortcut(key: &Key, modifiers: ModifiersState) -> Option<Action> {
             } else {
                 CopyImage
             }),
+            Key::Character(s) if s.eq_ignore_ascii_case("z") => Some(Undo),
             _ => None,
         };
     }
@@ -109,6 +111,7 @@ pub fn command(name: &str) -> Option<Action> {
         "copy" => CopyImage,
         "path" => CopyPath,
         "delete" => Delete,
+        "undo" => Undo,
         "info" => Info,
         "settings" => Settings,
         "reveal" => Reveal,

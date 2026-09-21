@@ -7,8 +7,18 @@ use std::{
 use windows::{
     Win32::{
         Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND},
+        Graphics::Gdi::{
+            COLOR_GRAYTEXT, COLOR_HIGHLIGHT, COLOR_HOTLIGHT, COLOR_WINDOW, COLOR_WINDOWTEXT,
+            GetSysColor,
+        },
         System::{Com::*, DataExchange::*, Memory::*},
-        UI::Shell::{Common::COMDLG_FILTERSPEC, *},
+        UI::{
+            Shell::{Common::COMDLG_FILTERSPEC, *},
+            WindowsAndMessaging::{
+                SYSTEM_PARAMETERS_INFO_ACTION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+                SystemParametersInfoW,
+            },
+        },
     },
     core::{PCWSTR, w},
 };
@@ -175,7 +185,57 @@ pub fn copy_image(owner: isize, width: u32, height: u32, rgba: &[u8]) -> Result<
     }
     clipboard_bytes(owner, 17, &dib) // CF_DIBV5
 }
-pub fn recycle(owner: isize, path: &Path, stamp: &Stamp) -> Result<(), Error> {
+pub struct Desktop {
+    pub high_contrast: bool,
+    pub reduce_motion: bool,
+    pub window: u32,
+    pub window_text: u32,
+    pub highlight: u32,
+    pub gray: u32,
+    pub hot: u32,
+}
+pub fn desktop() -> Desktop {
+    let mut scheme = [0u16; 260];
+    #[repr(C)]
+    struct HighContrast {
+        cb_size: u32,
+        flags: u32,
+        scheme: *mut u16,
+    }
+    let mut contrast = HighContrast {
+        cb_size: std::mem::size_of::<HighContrast>() as u32,
+        flags: 0,
+        scheme: scheme.as_mut_ptr(),
+    };
+    let mut animations = 1i32;
+    // SAFETY: the structures and the BOOL live for the synchronous query.
+    // SPI_GETHIGHCONTRAST is 0x0042 and SPI_GETCLIENTAREAANIMATION is 0x1042.
+    unsafe {
+        let _ = SystemParametersInfoW(
+            SYSTEM_PARAMETERS_INFO_ACTION(0x0042),
+            contrast.cb_size,
+            Some((&mut contrast as *mut HighContrast).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+        let _ = SystemParametersInfoW(
+            SYSTEM_PARAMETERS_INFO_ACTION(0x1042),
+            0,
+            Some((&mut animations as *mut i32).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+    }
+    let color = |index| unsafe { GetSysColor(index) };
+    Desktop {
+        high_contrast: contrast.flags & 1 != 0,
+        reduce_motion: animations == 0,
+        window: color(COLOR_WINDOW),
+        window_text: color(COLOR_WINDOWTEXT),
+        highlight: color(COLOR_HIGHLIGHT),
+        gray: color(COLOR_GRAYTEXT),
+        hot: color(COLOR_HOTLIGHT),
+    }
+}
+pub fn recycle(owner: isize, path: &Path, stamp: &Stamp) -> Result<Option<PathBuf>, Error> {
     use std::os::windows::fs::MetadataExt;
     let meta = std::fs::symlink_metadata(path)?;
     if !meta.is_file() || meta.file_attributes() & 0x400 != 0 {
@@ -202,7 +262,7 @@ pub fn recycle(owner: isize, path: &Path, stamp: &Stamp) -> Result<(), Error> {
                 | FOF_NOERRORUI,
         )
         .map_err(failure)?;
-        let outcome = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let outcome = std::sync::Arc::new(std::sync::Mutex::new(RecycleOutcome::default()));
         let sink: IFileOperationProgressSink = RecycleOnly {
             outcome: outcome.clone(),
         }
@@ -212,14 +272,49 @@ pub fn recycle(owner: isize, path: &Path, stamp: &Stamp) -> Result<(), Error> {
         if op.GetAnyOperationsAborted().map_err(failure)?.as_bool() {
             return Err(Error::Io("Recycle cancelled or unavailable".into()));
         }
-        if !outcome
+        let outcome = outcome
             .lock()
-            .is_ok_and(|result| result.is_some_and(|code| code >= 0))
-        {
+            .map_err(|_| Error::Io("Windows did not confirm recycling the file".into()))?;
+        if outcome.code.is_none_or(|code| code < 0) {
             return Err(Error::Io(
                 "Windows did not confirm recycling the file".into(),
             ));
         }
+        Ok(outcome.recycled.clone())
+    }
+}
+pub fn restore(owner: isize, recycled: &Path, original: &Path) -> Result<(), Error> {
+    if original.exists() {
+        return Err(Error::Io("The original file is already there".into()));
+    }
+    if !recycled.is_file() {
+        return Err(Error::Io("The recycled file is no longer available".into()));
+    }
+    let parent = original.parent().ok_or(Error::NotFound)?;
+    let name = wide(Path::new(original.file_name().ok_or(Error::NotFound)?))?;
+    let recycled = wide(recycled)?;
+    let parent = wide(parent)?;
+    // SAFETY: terminated paths live for the call. The operation moves the
+    // recycled file back to its original folder and does not delete anything.
+    unsafe {
+        let item: IShellItem =
+            SHCreateItemFromParsingName(PCWSTR(recycled.as_ptr()), None).map_err(failure)?;
+        let folder: IShellItem =
+            SHCreateItemFromParsingName(PCWSTR(parent.as_ptr()), None).map_err(failure)?;
+        let op: IFileOperation =
+            CoCreateInstance(&FileOperation, None, CLSCTX_INPROC_SERVER).map_err(failure)?;
+        op.SetOwnerWindow(HWND(owner as _)).map_err(failure)?;
+        op.SetOperationFlags(FOF_NOCONFIRMATION | FOF_NOERRORUI | FOFX_EARLYFAILURE)
+            .map_err(failure)?;
+        op.MoveItem(&item, &folder, PCWSTR(name.as_ptr()), None)
+            .map_err(failure)?;
+        op.PerformOperations().map_err(failure)?;
+        if op.GetAnyOperationsAborted().map_err(failure)?.as_bool() {
+            return Err(Error::Io("Restore cancelled or unavailable".into()));
+        }
+    }
+    if !original.is_file() {
+        return Err(Error::Io("Windows did not restore the file".into()));
     }
     Ok(())
 }
@@ -245,9 +340,28 @@ pub fn open_with(owner: isize, path: &Path) -> Result<(), Error> {
     unsafe { SHOpenWithDialog(Some(HWND(owner as _)), &info).map_err(failure) }
 }
 
+#[derive(Default)]
+struct RecycleOutcome {
+    code: Option<i32>,
+    recycled: Option<PathBuf>,
+}
+fn shell_path(item: &IShellItem) -> Option<PathBuf> {
+    // SAFETY: the shell allocates the display name; it is copied and freed here.
+    unsafe {
+        let name = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+        let mut len = 0usize;
+        while len < 32768 && *name.0.add(len) != 0 {
+            len += 1;
+        }
+        let path = std::ffi::OsString::from_wide(std::slice::from_raw_parts(name.0, len));
+        CoTaskMemFree(Some(name.0.cast()));
+        let path = PathBuf::from(path);
+        path.is_file().then_some(path)
+    }
+}
 #[windows::core::implement(IFileOperationProgressSink)]
 struct RecycleOnly {
-    outcome: std::sync::Arc<std::sync::Mutex<Option<i32>>>,
+    outcome: std::sync::Arc<std::sync::Mutex<RecycleOutcome>>,
 }
 // These method names/signatures are imposed by the COM interface.
 #[allow(non_snake_case)]
@@ -277,10 +391,13 @@ impl IFileOperationProgressSink_Impl for RecycleOnly_Impl {
         _: u32,
         _: windows::core::Ref<'_, IShellItem>,
         hr: windows::core::HRESULT,
-        _: windows::core::Ref<'_, IShellItem>,
+        created: windows::core::Ref<'_, IShellItem>,
     ) -> windows::core::Result<()> {
         if let Ok(mut outcome) = self.outcome.lock() {
-            *outcome = Some(hr.0);
+            outcome.code = Some(hr.0);
+            if hr.is_ok() {
+                outcome.recycled = created.as_ref().and_then(shell_path);
+            }
         }
         hr.ok()
     }

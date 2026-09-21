@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = folder.join("generated-猫.png");
     image::RgbaImage::from_pixel(2, 2, image::Rgba([120, 180, 240, 255])).save(&path)?;
     let stamp = Stamp::read(&path)?;
-    native::recycle(0, &path, &stamp)?;
+    let _recycled = native::recycle(0, &path, &stamp)?;
     if path.exists() {
         return Err("Shell returned success but the generated file still exists".into());
     }
