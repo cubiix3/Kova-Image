@@ -222,8 +222,8 @@ fn decode(
     });
     source.seek(SeekFrom::Start(0))?;
     let mut loops = Loops(Some(1));
-    // Animation paths fit and colour-convert every frame as it arrives, even
-    // when there is only one; still paths hold the full, unconverted canvas.
+    // Animations fit and colour-convert frames as they arrive; stills and
+    // one-frame animations hold the full, unconverted canvas until below.
     let mut fitted = false;
     let mut frames = match format {
         ImageFormat::Gif => {
@@ -233,8 +233,7 @@ fn decode(
             source.seek(SeekFrom::Start(0))?;
             let mut decoder = image::codecs::gif::GifDecoder::new(source)?;
             decoder.set_limits(security::limits())?;
-            fitted = true;
-            collect(
+            let (frames, animated) = collect(
                 decoder.into_frames(),
                 width,
                 height,
@@ -252,15 +251,16 @@ fn decode(
                     ))
                 },
                 &srgb,
-            )?
+            )?;
+            fitted = animated;
+            frames
         }
         ImageFormat::Png => {
             let decoder = image::codecs::png::PngDecoder::with_limits(source, security::limits())?;
             if decoder.is_apng()? {
                 let decoder = decoder.apng()?;
                 loops = loop_count(decoder.loop_count());
-                fitted = true;
-                collect(
+                let (frames, animated) = collect(
                     decoder.into_frames(),
                     width,
                     height,
@@ -278,7 +278,9 @@ fn decode(
                         ))
                     },
                     &srgb,
-                )?
+                )?;
+                fitted = animated;
+                frames
             } else {
                 vec![still(decoder)?]
             }
@@ -288,8 +290,7 @@ fn decode(
             decoder.set_limits(security::limits())?;
             if decoder.has_animation() {
                 loops = loop_count(decoder.loop_count());
-                fitted = true;
-                collect(
+                let (frames, animated) = collect(
                     decoder.into_frames(),
                     width,
                     height,
@@ -307,7 +308,9 @@ fn decode(
                         ))
                     },
                     &srgb,
-                )?
+                )?;
+                fitted = animated;
+                frames
             } else {
                 vec![still(decoder)?]
             }
@@ -322,44 +325,21 @@ fn decode(
     if Stamp::from_metadata(&monitor.metadata()?) != stamp || Stamp::read(path)? != stamp {
         return Err(Error::Changed);
     }
-    let (mut stored_w, mut stored_h) = if fitted {
-        fitted_size(width, height, target)
-    } else {
-        (width, height)
-    };
+    // Fitted results are real animations, which keep their stored orientation.
     if frames.len() == 1 && orientation != image::metadata::Orientation::NoTransforms {
         let rgba = std::mem::take(&mut frames[0].rgba);
         let mut image = image::DynamicImage::ImageRgba8(
-            image::RgbaImage::from_raw(stored_w, stored_h, rgba).ok_or(Error::Dimensions)?,
+            image::RgbaImage::from_raw(width, height, rgba).ok_or(Error::Dimensions)?,
         );
         image.apply_orientation(orientation);
-        if matches!(
-            orientation,
-            image::metadata::Orientation::Rotate90
-                | image::metadata::Orientation::Rotate270
-                | image::metadata::Orientation::Rotate90FlipH
-                | image::metadata::Orientation::Rotate270FlipH
-        ) {
-            std::mem::swap(&mut width, &mut height);
-        }
-        stored_w = image.width();
-        stored_h = image.height();
+        width = image.width();
+        height = image.height();
         frames[0].rgba = image.into_rgba8().into_raw();
-        if fitted {
-            // The frame was fitted before the axes swapped; fit the rotated
-            // bitmap again so it stays inside the target. Never enlarges.
-            let rgba = std::mem::take(&mut frames[0].rgba);
-            let (rgba, w, h) = scale_rgba(rgba, stored_w, stored_h, target)?;
-            frames[0].rgba = rgba;
-            stored_w = w;
-            stored_h = h;
-        }
     }
     let source_width = width;
     let source_height = height;
     if fitted {
-        width = stored_w;
-        height = stored_h;
+        (width, height) = fitted_size(source_width, source_height, target);
     } else {
         let rgba = std::mem::take(&mut frames[0].rgba);
         let (rgba, w, h) = scale_rgba(rgba, width, height, target)?;
@@ -393,6 +373,9 @@ fn loop_count(count: image::metadata::LoopCount) -> Loops {
         image::metadata::LoopCount::Finite(n) => Loops(Some(n.get())),
     }
 }
+/// Returns the frames and whether they were fitted and colour-converted. A
+/// single frame is returned untouched so the caller treats it like a still:
+/// orientation first, then fitting, which keeps rotated bounds exact.
 fn collect(
     mut frames: image::Frames<'_>,
     width: u32,
@@ -401,26 +384,23 @@ fn collect(
     ticket: &Ticket,
     preview: &mut dyn FnMut(Frame, u32, u32),
     srgb: &Srgb,
-) -> Result<Vec<Frame>, Error> {
+) -> Result<(Vec<Frame>, bool), Error> {
     let (stored_w, stored_h) = fitted_size(width, height, target);
     // Count the source canvas, matching the stored-budget admission used before
     // display scaling. Downscaling only reduces what is retained afterwards.
     let weight = security::rgba_bytes(width, height)?;
+    let fit = |rgba: Vec<u8>| -> Result<Vec<u8>, Error> {
+        let (mut rgba, w, h) = scale_rgba(rgba, width, height, target)?;
+        if (w, h) != (stored_w, stored_h) {
+            return Err(Error::Dimensions);
+        }
+        to_srgb(&mut rgba, srgb);
+        Ok(rgba)
+    };
     let mut result: Vec<Frame> = Vec::new();
     let mut announced = false;
     loop {
         ticket.check()?;
-        if result.len() == 1 && !announced {
-            announced = true;
-            let (mut rgba, w, h) =
-                scale_rgba(std::mem::take(&mut result[0].rgba), width, height, target)?;
-            if (w, h) != (stored_w, stored_h) {
-                return Err(Error::Dimensions);
-            }
-            to_srgb(&mut rgba, srgb);
-            result[0].rgba = rgba;
-            preview(result[0].clone(), stored_w, stored_h);
-        }
         if result.len() >= security::MAX_FRAMES
             || result.len().saturating_add(1).saturating_mul(weight) > security::FRAME_BUDGET
         {
@@ -435,13 +415,15 @@ fn collect(
         }
         let (n, d) = frame.delay().numer_denom_ms();
         let mut rgba = frame.into_buffer().into_raw();
+        if !announced && result.len() == 1 {
+            // A second frame proves this is an animation: fit the first one
+            // and show it while the rest decodes.
+            announced = true;
+            result[0].rgba = fit(std::mem::take(&mut result[0].rgba))?;
+            preview(result[0].clone(), stored_w, stored_h);
+        }
         if announced {
-            let (scaled, w, h) = scale_rgba(rgba, width, height, target)?;
-            if (w, h) != (stored_w, stored_h) {
-                return Err(Error::Dimensions);
-            }
-            rgba = scaled;
-            to_srgb(&mut rgba, srgb);
+            rgba = fit(rgba)?;
         }
         result.push(Frame {
             rgba,
@@ -451,7 +433,7 @@ fn collect(
     if result.is_empty() {
         return Err(Error::Corrupted("no image frames".into()));
     }
-    Ok(result)
+    Ok((result, announced))
 }
 fn partial(
     frame: Frame,
