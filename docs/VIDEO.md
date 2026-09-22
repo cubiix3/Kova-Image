@@ -17,6 +17,9 @@ process, plugin search or codec download is part of the application.
   entire viewport, including upscaling smaller sources.
 - Autoplay and looping are separate from animated-image settings. Minimized or
   occluded windows pause video/audio while retaining the user's pause preference.
+  Moving the window keeps playback running: the frameless title bar moves the
+  window itself instead of entering the native modal move loop, which would
+  stall frame delivery.
 - Each launch owns its window. There is no background service or IPC protocol.
 
 The native worker initializes only for video. Media Engine owns synchronized
