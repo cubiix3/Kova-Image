@@ -28,6 +28,48 @@ impl App {
                 });
         }
     }
+    pub(super) fn begin_window_drag(&mut self) {
+        self.window_drag = Some(WindowDrag {
+            grab: self.cursor_physical,
+        });
+    }
+    fn move_window(&mut self, position: (f64, f64)) {
+        let Some(ui) = self.ui.upgrade() else {
+            return;
+        };
+        let Some(drag) = self.window_drag.as_mut() else {
+            return;
+        };
+        if ui
+            .window()
+            .with_winit_window(|window| window.is_maximized())
+            .unwrap_or(false)
+        {
+            ui.window()
+                .with_winit_window(|window| window.set_maximized(false));
+            drag.grab = None;
+            return;
+        }
+        let grab = match drag.grab {
+            Some(grab) => grab,
+            None => {
+                drag.grab = Some(position);
+                return;
+            }
+        };
+        let (dx, dy) = (
+            (position.0 - grab.0).round() as i32,
+            (position.1 - grab.1).round() as i32,
+        );
+        ui.window().with_winit_window(|window| {
+            if let Ok(current) = window.outer_position() {
+                let target = PhysicalPosition::new(current.x + dx, current.y + dy);
+                if target != current {
+                    window.set_outer_position(target);
+                }
+            }
+        });
+    }
     pub(super) fn window_event(&mut self, event: &WindowEvent) -> bool {
         let Some(ui) = self.ui.upgrade() else {
             return false;
@@ -113,8 +155,11 @@ impl App {
                 ui.set_keyboard_mode(false);
                 let scale = ui.window().scale_factor();
                 self.cursor = (position.x as f32 / scale, position.y as f32 / scale);
+                self.cursor_physical = Some((position.x, position.y));
                 self.wake_chrome();
-                if let Some(old) = self.drag {
+                if self.window_drag.is_some() {
+                    self.move_window((position.x, position.y));
+                } else if let Some(old) = self.drag {
                     self.view.pan.0 += self.cursor.0 - old.0;
                     self.view.pan.1 += self.cursor.1 - old.1;
                     self.drag = Some(self.cursor);
@@ -127,6 +172,7 @@ impl App {
                 self.wake_chrome();
                 if *state == ElementState::Released {
                     self.drag = None;
+                    self.window_drag = None;
                 }
                 if ui.get_show_settings() || ui.get_show_info() || ui.get_show_more() {
                     return false;
@@ -189,6 +235,7 @@ impl App {
             WindowEvent::Focused(false) => {
                 ui.set_keyboard_mode(false);
                 self.drag = None;
+                self.window_drag = None;
                 self.pointer_down = false;
                 self.modifiers = ModifiersState::empty();
             }

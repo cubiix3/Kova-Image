@@ -16,6 +16,7 @@ use slint::{
     winit_030::{
         EventResult, WinitWindowAccessor,
         winit::{
+            dpi::PhysicalPosition,
             event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
             keyboard::ModifiersState,
         },
@@ -67,6 +68,9 @@ struct RecycleUndo {
     original: PathBuf,
     recycled: PathBuf,
 }
+struct WindowDrag {
+    grab: Option<(f64, f64)>,
+}
 struct App {
     ui: slint::Weak<ViewerWindow>,
     loader: Loader,
@@ -98,7 +102,9 @@ struct App {
     feedback_timer: Timer,
     modifiers: ModifiersState,
     cursor: (f32, f32),
+    cursor_physical: Option<(f64, f64)>,
     drag: Option<(f32, f32)>,
+    window_drag: Option<WindowDrag>,
     pointer_down: bool,
     started: Instant,
     measure: Option<PathBuf>,
@@ -219,7 +225,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         feedback_timer: Timer::default(),
         modifiers: ModifiersState::empty(),
         cursor: (0., 0.),
+        cursor_physical: None,
         drag: None,
+        window_drag: None,
         pointer_down: false,
         started,
         measure,
@@ -241,14 +249,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     ui.on_volume_change(|volume| with_app(|app| app.audio_video(f64::from(volume), false)));
     ui.on_setting(|name, value| with_app(|app| app.setting(&name, value)));
     ui.on_activity(|| with_app(|app| app.wake_chrome()));
-    let weak = ui.as_weak();
-    ui.on_drag_window(move || {
-        if let Some(ui) = weak.upgrade() {
-            ui.window().with_winit_window(|w| {
-                let _ = w.drag_window();
-            });
-        }
-    });
+    ui.on_drag_window(|| with_app(|app| app.begin_window_drag()));
     ui.window().on_winit_window_event(|_, event| {
         let mut handled = false;
         with_app(|app| handled = app.window_event(event));
