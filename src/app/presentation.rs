@@ -359,9 +359,13 @@ impl App {
             return;
         };
         self.refining = true;
-        self.id = self
-            .loader
-            .request(path, Vec::new(), false, self.settings.natural_sort, target);
+        self.id = self.loader.request(
+            path,
+            Vec::new(),
+            self.pending_scan,
+            self.settings.natural_sort,
+            target,
+        );
     }
     pub(super) fn presentation_viewport(&self) -> (u32, u32) {
         self.physical_viewport()
@@ -402,6 +406,8 @@ impl App {
             theme.set_accent(highlight);
             theme.set_selected(highlight);
             theme.set_danger(color(desktop.hot));
+            theme.set_primary_border(text);
+            theme.set_toggle_thumb(window);
         } else {
             theme.set_canvas(slint::Color::from_rgb_u8(0x10, 0x12, 0x14));
             theme.set_surface(slint::Color::from_rgb_u8(0x1b, 0x1e, 0x22));
@@ -417,6 +423,8 @@ impl App {
             theme.set_accent(slint::Color::from_rgb_u8(0x86, 0xd5, 0xf4));
             theme.set_selected(slint::Color::from_rgb_u8(0x25, 0x3e, 0x4b));
             theme.set_danger(slint::Color::from_rgb_u8(0xf4, 0x9b, 0x9b));
+            theme.set_primary_border(slint::Color::from_rgb_u8(0x42, 0x62, 0x72));
+            theme.set_toggle_thumb(slint::Color::from_rgb_u8(0x14, 0x25, 0x2e));
         }
     }
 }

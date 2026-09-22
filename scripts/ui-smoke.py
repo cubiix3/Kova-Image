@@ -301,6 +301,7 @@ try:
         print("PASS: state", scenario)
     else:
         wait_for(state_file.exists)
+        wait_for(lambda: snapshot("01-fit")["can_next"] == "true")
         assert snapshot("01-fit")["filename"] == "image1.jpg"
         key(0x27)
         assert snapshot("02-next")["filename"] == "image2.png"

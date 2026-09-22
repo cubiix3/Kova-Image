@@ -26,7 +26,7 @@ export component Tool inherits Rectangle {
     border-radius: Theme.radius;
     background: !root.enabled ? transparent : touch.pressed || root.key-down ? Theme.pressed : touch.has-hover ? (root.danger ? #733239 : Theme.hover) : root.primary ? Theme.selected : root.active ? Theme.selected : root.filled ? Theme.raised : transparent;
     border-width: focus.has-focus && Interaction.keyboard ? 2px : root.primary ? 1px : 0px;
-    border-color: focus.has-focus && Interaction.keyboard ? Theme.accent : #426272;
+    border-color: focus.has-focus && Interaction.keyboard ? Theme.accent : Theme.primary-border;
     property <bool> key-down;
     property <color> foreground: !root.enabled ? Theme.disabled : root.primary || root.active ? Theme.accent : root.danger ? Theme.danger : Theme.text;
     accessible-role: button;
@@ -113,7 +113,7 @@ export component ToggleRow inherits Rectangle {
             Rectangle {
                 width: 30px; height: 18px; y: (parent.height - self.height)/2; border-radius: 9px;
                 background: root.checked ? Theme.accent : Theme.stroke;
-                Rectangle { width: 12px; height: 12px; y: 3px; x: root.checked ? 15px : 3px; border-radius: 6px; background: root.checked ? #14252e : Theme.secondary; }
+                Rectangle { width: 12px; height: 12px; y: 3px; x: root.checked ? 15px : 3px; border-radius: 6px; background: root.checked ? Theme.toggle-thumb : Theme.secondary; }
             }
         }
     }
