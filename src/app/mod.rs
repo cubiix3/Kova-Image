@@ -120,6 +120,8 @@ struct App {
     preview_id: Option<u64>,
     pending_copy: bool,
     undo: Option<RecycleUndo>,
+    undo_notice: bool,
+    wheel: f32,
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -154,18 +156,26 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .renderer_name(if software { "software" } else { "femtovg" }.into())
         .select()?;
     let ui = ViewerWindow::new()?;
-    let (events_tx, events_rx) = mpsc::sync_channel(4);
-    let events_rx = Arc::new(std::sync::Mutex::new(events_rx));
+    // Loader results wait here for the UI. Coalescing keeps only the current
+    // request's newest events, which bounds retained bitmaps even while a
+    // modal native dialog is open, and never loses the result the view needs.
+    let events = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
     let loader = Loader::new(move |event| {
-        // The mailbox caps retained decoded results even while a modal native
-        // dialog is open. The foreground receiver never waits for a worker.
-        if events_tx.try_send(event).is_ok() {
-            let rx = events_rx.clone();
+        let Ok(mut queue) = events.lock() else {
+            return;
+        };
+        let idle = queue.is_empty();
+        kova_image::image_loader::coalesce(&mut queue, event);
+        drop(queue);
+        if idle {
+            let events = events.clone();
             let _ = slint::invoke_from_event_loop(move || {
-                if let Ok(rx) = rx.lock() {
-                    while let Ok(event) = rx.try_recv() {
-                        with_app(|app| app.event(event));
-                    }
+                let drained = events
+                    .lock()
+                    .map(|mut queue| std::mem::take(&mut *queue))
+                    .unwrap_or_default();
+                for event in drained {
+                    with_app(|app| app.event(event));
                 }
             });
         }
@@ -244,6 +254,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         preview_id: None,
         pending_copy: false,
         undo: None,
+        undo_notice: false,
+        wheel: 0.,
     }));
     APP.with(|slot| *slot.borrow_mut() = Some(app.clone()));
     ui.on_command(|name| {
@@ -356,6 +368,15 @@ impl App {
                 }
             }
         };
+        // Ctrl+Z restores the last deletion only while its folder is open.
+        if self
+            .undo
+            .as_ref()
+            .is_some_and(|undo| undo.original.parent() != path.parent())
+        {
+            self.undo = None;
+            self.undo_notice = false;
+        }
         self.pending_scan = scan;
         self.animation.stop();
         self.feedback_timer.stop();

@@ -96,6 +96,7 @@ impl App {
             Ok(ShellResult::Done(message)) => self.status(message),
             Ok(ShellResult::Restored(path)) => {
                 self.undo = None;
+                self.undo_notice = false;
                 self.open(path, true);
                 self.status("Restored from the Recycle Bin");
             }
@@ -108,7 +109,9 @@ impl App {
                 if self.requested.as_ref() == Some(&path) {
                     self.animation.stop();
                     if let Some(next) = self.nav.step(0) {
-                        self.open(next, true);
+                        // The folder list is already current; no rescan.
+                        self.undo_notice = self.undo.is_some();
+                        self.open(next, false);
                     } else {
                         self.image = None;
                         self.video_stamp = None;

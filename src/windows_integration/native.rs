@@ -292,10 +292,13 @@ pub fn restore(owner: isize, recycled: &Path, original: &Path) -> Result<(), Err
     }
     let parent = original.parent().ok_or(Error::NotFound)?;
     let name = wide(Path::new(original.file_name().ok_or(Error::NotFound)?))?;
+    let info = recycle_info(recycled);
     let recycled = wide(recycled)?;
     let parent = wide(parent)?;
     // SAFETY: terminated paths live for the call. The operation moves the
-    // recycled file back to its original folder and does not delete anything.
+    // recycled file back to its original folder. Confirmations stay enabled so
+    // a file that appears at the original path meanwhile is never replaced
+    // silently; Windows asks the user instead.
     unsafe {
         let item: IShellItem =
             SHCreateItemFromParsingName(PCWSTR(recycled.as_ptr()), None).map_err(failure)?;
@@ -304,7 +307,7 @@ pub fn restore(owner: isize, recycled: &Path, original: &Path) -> Result<(), Err
         let op: IFileOperation =
             CoCreateInstance(&FileOperation, None, CLSCTX_INPROC_SERVER).map_err(failure)?;
         op.SetOwnerWindow(HWND(owner as _)).map_err(failure)?;
-        op.SetOperationFlags(FOF_NOCONFIRMATION | FOF_NOERRORUI | FOFX_EARLYFAILURE)
+        op.SetOperationFlags(FOF_NOERRORUI | FOFX_EARLYFAILURE)
             .map_err(failure)?;
         op.MoveItem(&item, &folder, PCWSTR(name.as_ptr()), None)
             .map_err(failure)?;
@@ -316,7 +319,24 @@ pub fn restore(owner: isize, recycled: &Path, original: &Path) -> Result<(), Err
     if !original.is_file() {
         return Err(Error::Io("Windows did not restore the file".into()));
     }
+    // Windows' own restore also removes the $I metadata record; without this
+    // the Recycle Bin keeps an entry for a file that is no longer there.
+    if let Some(info) = info {
+        let _ = std::fs::remove_file(info);
+    }
     Ok(())
+}
+/// The `$I` metadata record paired with a `$R` payload inside `$Recycle.Bin`.
+fn recycle_info(recycled: &Path) -> Option<PathBuf> {
+    let name = recycled.file_name()?.to_str()?;
+    let rest = name.strip_prefix("$R")?;
+    let in_bin = recycled.ancestors().any(|dir| {
+        dir.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("$Recycle.Bin"))
+    });
+    let info = recycled.with_file_name(format!("$I{rest}"));
+    (in_bin && info.is_file()).then_some(info)
 }
 pub fn reveal(path: &Path) -> Result<(), Error> {
     let path = wide(path)?;
