@@ -14,7 +14,7 @@
 | Decode threads | 1 |
 | Pending decode requests | 1 (newest replaces previous) |
 | Pending image/folder results | 4 |
-| Speculative neighbors | Next, then previous |
+| Speculative neighbors | Next two in the direction of travel; next and previous before the first move |
 | Folder entries | Fewer than 100,000 supported entries |
 | Retained folder path names | 16 MiB |
 | Frame duration | 10 ms through 60 seconds |
