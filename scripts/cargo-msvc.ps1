@@ -20,7 +20,12 @@
 # Plain $args instead of a param block: an advanced-script parameter rejects
 # positional arguments under `powershell -File` and drops a literal `--`.
 # From an interactive PowerShell prompt, quote it: ... test '--' --nocapture
-$CargoArgs = @($args)
+# The older `-CargoArgs @('build', ...)` form still works: arrays are
+# flattened and the leading switch name is dropped.
+$CargoArgs = @($args | ForEach-Object { $_ })
+if ($CargoArgs.Count -gt 0 -and $CargoArgs[0] -eq "-CargoArgs") {
+    $CargoArgs = @($CargoArgs | Select-Object -Skip 1)
+}
 if ($CargoArgs.Count -eq 0) {
     throw "Usage: cargo-msvc.ps1 <cargo arguments>, for example: cargo-msvc.ps1 test --locked"
 }
