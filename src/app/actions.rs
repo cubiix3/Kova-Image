@@ -51,20 +51,37 @@ impl App {
                     _ => kova_image::viewer::Fit::Actual,
                 });
                 self.update_view();
+                self.ensure_detail();
+                self.feedback(match action {
+                    Fit => "Fit to window",
+                    FitWidth => "Fit to width",
+                    _ => "100%",
+                });
             }
             RotateLeft | RotateRight => {
                 self.view.rotation = (self.view.rotation
                     + if action == RotateLeft { -90 } else { 90 })
                 .rem_euclid(360);
                 self.update_view();
+                self.feedback(format!("Rotation {}°", self.view.rotation));
             }
             FlipHorizontal => {
                 self.view.flip_h = !self.view.flip_h;
                 self.update_view();
+                self.feedback(if self.view.flip_h {
+                    "Flipped horizontally"
+                } else {
+                    "Horizontal flip off"
+                });
             }
             FlipVertical => {
                 self.view.flip_v = !self.view.flip_v;
                 self.update_view();
+                self.feedback(if self.view.flip_v {
+                    "Flipped vertically"
+                } else {
+                    "Vertical flip off"
+                });
             }
             Fullscreen => {
                 let full = !ui.get_fullscreen();
@@ -88,6 +105,7 @@ impl App {
                 ui.set_fullscreen(false);
                 ui.set_chrome(true);
                 self.update_view();
+                self.wake_chrome();
             }
             Pause if self.video_stamp.is_some() => {
                 if let Some(player) = &self.video {
@@ -99,6 +117,7 @@ impl App {
                     }
                     player.pause(self.paused);
                     ui.set_paused(self.paused);
+                    self.feedback(if self.paused { "Paused" } else { "Playing" });
                 }
             }
             Pause => {
@@ -111,6 +130,9 @@ impl App {
                 }
                 ui.set_paused(self.paused);
                 self.schedule();
+                if ui.get_animated() {
+                    self.feedback(if self.paused { "Paused" } else { "Playing" });
+                }
             }
             Info => {
                 self.update_info();
@@ -131,6 +153,19 @@ impl App {
             Close => {
                 let _ = slint::quit_event_loop();
             }
+            CopyImage
+                if self.image.as_ref().is_some_and(|image| {
+                    image.frames.len() == 1 && !image.serves(kova_image::decoder::Target::full())
+                }) =>
+            {
+                self.pending_copy = true;
+                self.ensure(kova_image::decoder::Target::full());
+                if !self.refining {
+                    self.pending_copy = false;
+                    self.send_shell(CopyImage, None);
+                }
+            }
+            Undo => self.send_shell(Undo, None),
             Open | CopyImage | CopyPath | Delete | Reveal | OpenWith | Register | DefaultApps => {
                 self.send_shell(action, None)
             }

@@ -8,6 +8,8 @@ graph: native UI/font support has a substantial build footprint.
 | --- | --- | --- |
 | Slint 1.17.1 | Active native toolkit; use its Royalty-free 2.0 desktop option with attribution | Winit + FemtoVG/OpenGL and software fallback only; no Qt, Skia, WebView, system-tray feature or runtime image downloading. GUI, text, font and SVG support remain transitive costs. Minor version pinned because the winit adapter is unstable. |
 | image 0.25.10 | Actively maintained image-rs project; MIT OR Apache-2.0 | Explicit JPEG/PNG/GIF/WebP/BMP/TIFF/ICO features, no default-format bundle and no Rayon. Limits, content detection, orientation and composited animation. Format-specific limits are not a universal allocator cap. |
+| moxcms 0.8 | BSD-3-Clause OR Apache-2.0; already used by image-rs | Direct use converts an embedded ICC profile to 8-bit sRGB. A missing or unreadable profile leaves the decoded pixels unchanged. No network and no monitor profile. |
+| kamadak-exif 0.6.1 | BSD-2-Clause | Reads the Exif block image-rs already returns. Used for the date, camera and exposure rows. No thumbnail extraction. |
 | windows / windows-core 0.62 | Microsoft bindings; MIT OR Apache-2.0 | Selected Win32/Shell/COM/clipboard/Registry/DWM and Media Foundation/D3D11 APIs, shared version with Slint. Native video initializes on demand; no bundled multimedia engine or IPC. |
 | raw-window-handle 0.6 | MIT OR Apache-2.0 | Already in the GUI graph; obtains an owner HWND for native dialogs/clipboard. |
 | slint-build | Same licensing family as Slint | Build-only UI compiler; its image features include encoders and formats not shipped as viewer decoders. |
@@ -35,10 +37,12 @@ before releases; absence of an advisory is not proof of safety.
 
 ## Format decisions
 
-AVIF remains deferred. image-rs `avif-native` introduces dav1d and native build/
-packaging requirements. The reviewed zenavif 0.1.6 alternative is
-AGPL-3.0-only OR commercial, which does not preserve the intended Kova licensing
-model without additional choices. No encoder is added merely to claim a decoder.
+AVIF remains deferred. image-rs `avif-native` resolves to dav1d-sys, which
+requires pkg-config and either a preinstalled dav1d or a Meson build that
+clones dav1d during compilation. That does not fit the locked MSVC build.
+The reviewed zenavif 0.1.6 alternative is AGPL-3.0-only OR commercial, which
+does not preserve the intended Kova licensing model. No encoder is added
+merely to claim a decoder.
 
 HEIC/HEIF, JPEG XL and RAW require separate license, memory, maintenance and
 distribution evaluation. SVG would require a deliberate bounded rendering and

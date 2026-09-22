@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = tx.try_send(update);
     })?;
     player.audio(0.0, true);
-    player.open(1, source, true, false);
+    player.open(1, source, true, false, (1920, 1080));
     let start = Instant::now();
     let mut frames = 0;
     let mut sought = false;
