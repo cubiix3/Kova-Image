@@ -224,7 +224,7 @@ export component ViewerWindow inherits Window {
             if root.is-video: Group {
                 horizontal-stretch: 1;
                 Tool { icon: root.paused ? Icons.play : Icons.pause; has-icon: true; hint: root.paused ? "Play video  /  Space" : "Pause video  /  Space"; enabled: root.tools-enabled && root.has-image; clicked => { root.command("pause"); } }
-                Track { value: root.video-progress; label: "Seek video / Ctrl+Left or Ctrl+Right: 5 seconds"; enabled: root.tools-enabled && root.has-image; changed(value) => { root.seek(value); } }
+                Track { value: root.video-progress; label: "Seek video / Ctrl+Left or Ctrl+Right: 5 seconds"; value-label: root.time-label; enabled: root.tools-enabled && root.has-image; changed(value) => { root.seek(value); } }
                 Text { text: root.time-label; color: Theme.secondary; font-size: 12px; width: root.compact ? 84px : 106px; horizontal-alignment: center; vertical-alignment: center; }
                 Tool { icon: root.muted || root.volume == 0 ? Icons.mute : Icons.volume; has-icon: true; hint: "Mute / unmute  /  M"; active: root.muted; checkable: true; enabled: root.tools-enabled; clicked => { root.command("mute"); } }
                 Track { value: root.volume; label: "Volume"; width: root.compact ? 58px : 80px; horizontal-stretch: 0; enabled: root.tools-enabled; changed(value) => { root.volume-change(value); } }

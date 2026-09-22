@@ -55,3 +55,11 @@ The release EXE observed during this validation was about 15.1 MB (decimal).
 Portable ZIP size depends on the included documentation/license bundle.
 Long-session navigation, diverse animations, truly cold launches, clean-machine
 runtime dependencies, slower GPUs and older Windows hardware remain unmeasured.
+
+## Natural folder sorting, 2026-09-22
+
+In one release-mode process, 100,000 generated names in a deterministic mixed
+order were sorted with the original comparator and with cached folded names.
+The original sort took 282 ms; the cached-key sort took 75 ms. Both produced the
+same order. This measures sorting only, not directory enumeration or image load,
+and is not a claim about end-to-end navigation time.

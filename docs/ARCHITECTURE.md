@@ -32,6 +32,8 @@ Only the matching generation can update the view. Preload ordering is next,
 then previous, with no additional speculative radius. A codec already executing
 inside one call can delay the next request; there is no thread kill or unsafe
 cancellation. One worker bounds decode concurrency and peak overlap.
+If display-size refinement replaces an initial request before its folder scan
+finishes, the new request inherits that scan so navigation still becomes ready.
 
 The old picture remains visible while a new request is pending. A failed request
 shows an error and retains folder navigation. Destructive/copy operations require

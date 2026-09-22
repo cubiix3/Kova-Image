@@ -89,6 +89,7 @@ struct App {
     volume: f64,
     muted: bool,
     nav: Navigation,
+    pending_scan: bool,
     view: View,
     settings: Settings,
     settings_ready: bool,
@@ -212,6 +213,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         volume: 0.7,
         muted: cfg!(debug_assertions) && std::env::var_os("KOVA_TEST_MUTE").is_some(),
         nav: Navigation::default(),
+        pending_scan: false,
         view,
         settings,
         settings_ready: false,
@@ -350,6 +352,7 @@ impl App {
                 }
             }
         };
+        self.pending_scan = scan;
         self.animation.stop();
         self.feedback_timer.stop();
         self.pending_video = None;
@@ -457,14 +460,17 @@ impl App {
                     }
                 }
             }
-            Event::Folder { id, path, result } if id == self.id => match result {
-                Ok(files) => {
-                    self.nav.set(files, &path);
-                    self.update_navigation();
-                    self.update_info();
+            Event::Folder { id, path, result } if id == self.id => {
+                self.pending_scan = false;
+                match result {
+                    Ok(files) => {
+                        self.nav.set(files, &path);
+                        self.update_navigation();
+                        self.update_info();
+                    }
+                    Err(e) => self.status(format!("Folder navigation: {e}")),
                 }
-                Err(e) => self.status(format!("Folder navigation: {e}")),
-            },
+            }
             _ => {}
         }
     }

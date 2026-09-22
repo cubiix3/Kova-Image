@@ -16,7 +16,10 @@ pub fn supported_extension(path: &Path) -> bool {
 pub fn natural_cmp(left: &str, right: &str) -> Ordering {
     let l = left.to_lowercase();
     let r = right.to_lowercase();
-    let (a, b) = (l.as_bytes(), r.as_bytes());
+    natural_cmp_folded(&l, &r).then_with(|| left.cmp(right))
+}
+fn natural_cmp_folded(left: &str, right: &str) -> Ordering {
+    let (a, b) = (left.as_bytes(), right.as_bytes());
     let (mut i, mut j) = (0, 0);
     while i < a.len() && j < b.len() {
         if a[i].is_ascii_digit() && b[j].is_ascii_digit() {
@@ -27,8 +30,8 @@ pub fn natural_cmp(left: &str, right: &str) -> Ordering {
             while j < b.len() && b[j].is_ascii_digit() {
                 j += 1;
             }
-            let x = l[si..i].trim_start_matches('0');
-            let y = r[sj..j].trim_start_matches('0');
+            let x = left[si..i].trim_start_matches('0');
+            let y = right[sj..j].trim_start_matches('0');
             let cmp = x
                 .len()
                 .cmp(&y.len())
@@ -46,7 +49,7 @@ pub fn natural_cmp(left: &str, right: &str) -> Ordering {
             j += 1;
         }
     }
-    a.len().cmp(&b.len()).then_with(|| left.cmp(right))
+    a.len().cmp(&b.len())
 }
 pub fn scan(path: &Path, ticket: &Ticket, natural: bool) -> Result<Vec<PathBuf>, Error> {
     let folder = path.parent().ok_or(Error::NotFound)?;
@@ -75,18 +78,39 @@ pub fn scan(path: &Path, ticket: &Ticket, natural: bool) -> Result<Vec<PathBuf>,
     if !entries.iter().any(|p| p == path) {
         entries.push(path.to_path_buf());
     }
-    if natural {
-        entries.sort_unstable_by(|a, b| {
-            natural_cmp(
-                &a.file_name().unwrap_or_default().to_string_lossy(),
-                &b.file_name().unwrap_or_default().to_string_lossy(),
-            )
-        });
-    } else {
-        entries.sort_unstable();
-    }
+    let entries = sort_entries(entries, ticket, natural)?;
     ticket.check()?;
     Ok(entries)
+}
+fn sort_entries(
+    mut entries: Vec<PathBuf>,
+    ticket: &Ticket,
+    natural: bool,
+) -> Result<Vec<PathBuf>, Error> {
+    if !natural {
+        entries.sort_unstable();
+        return Ok(entries);
+    }
+    let mut keyed = Vec::with_capacity(entries.len());
+    for path in entries {
+        ticket.check()?;
+        let folded = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_lowercase();
+        keyed.push((path, folded));
+    }
+    keyed.sort_unstable_by(|(left_path, left_key), (right_path, right_key)| {
+        natural_cmp_folded(left_key, right_key).then_with(|| {
+            left_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .cmp(&right_path.file_name().unwrap_or_default().to_string_lossy())
+        })
+    });
+    Ok(keyed.into_iter().map(|(path, _)| path).collect())
 }
 #[derive(Default)]
 pub struct Navigation {
@@ -163,5 +187,31 @@ mod tests {
         assert_eq!(n.first(), Some("1".into()));
         assert_eq!(n.step(-1), Some("1".into()));
         assert_eq!(n.last(), Some("3".into()));
+    }
+    #[test]
+    fn cached_sort_preserves_natural_order_and_cancellation() {
+        let names: Vec<PathBuf> = [
+            "Bild10.png",
+            "bild2.png",
+            "Bild02.png",
+            "Äpfel3.png",
+            "äpfel12.png",
+        ]
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
+        let mut expected = names.clone();
+        expected.sort_unstable_by(|a, b| {
+            natural_cmp(
+                &a.file_name().unwrap_or_default().to_string_lossy(),
+                &b.file_name().unwrap_or_default().to_string_lossy(),
+            )
+        });
+        let generation = crate::security::Generation::default();
+        let ticket = generation.next();
+        let sorted = sort_entries(names.clone(), &ticket, true).unwrap();
+        assert_eq!(expected, sorted);
+        generation.next();
+        assert_eq!(sort_entries(names, &ticket, true), Err(Error::Cancelled));
     }
 }
