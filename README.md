@@ -2,261 +2,243 @@
   <img src="docs/images/banner.svg" width="100%" alt="Kova Image - Open a file. See it immediately. Move on.">
 </p>
 
-# Kova Image
-
-<p align="center">A fast, lightweight local image and video viewer for Windows.</p>
+<h1 align="center">Kova Image</h1>
 
 <p align="center">
+  <b>A fast, quiet image and video viewer for Windows.</b><br>
+  Native Rust. No accounts, no cloud, no telemetry. Just your files.
+</p>
+
+<p align="center">
+  <a href="https://github.com/cubiix3/Kova-Image/releases/latest"><img src="https://img.shields.io/github/v/release/cubiix3/Kova-Image?label=download&color=86d5f4&labelColor=101214" alt="Latest release"></a>
   <a href="https://github.com/cubiix3/Kova-Image/actions/workflows/ci.yml"><img src="https://github.com/cubiix3/Kova-Image/actions/workflows/ci.yml/badge.svg" alt="Windows CI"></a>
   <a href="https://github.com/cubiix3/Kova-Image/actions/workflows/security.yml"><img src="https://github.com/cubiix3/Kova-Image/actions/workflows/security.yml/badge.svg" alt="Dependency audit"></a>
-  <a href="#current-status"><img src="https://img.shields.io/badge/status-early_development-253e4b" alt="Early Development"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT_OR_Apache--2.0-253e4b" alt="MIT OR Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-253e4b?labelColor=101214" alt="Windows 10 and 11, x64">
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-253e4b?labelColor=101214" alt="MIT OR Apache-2.0"></a>
 </p>
 
 <p align="center">
-  <a href="#screenshots">Screenshots</a> &middot;
-  <a href="#installation--running">Get started</a> &middot;
-  <a href="#supported-formats">Formats</a> &middot;
-  <a href="docs/README.md">Documentation</a> &middot;
-  <a href="CONTRIBUTING.md">Contribute</a>
+  <a href="#download">Download</a> &nbsp;&middot;&nbsp;
+  <a href="#highlights">Highlights</a> &nbsp;&middot;&nbsp;
+  <a href="#supported-formats">Formats</a> &nbsp;&middot;&nbsp;
+  <a href="#keyboard-and-mouse">Shortcuts</a> &nbsp;&middot;&nbsp;
+  <a href="#building-from-source">Build</a> &nbsp;&middot;&nbsp;
+  <a href="docs/README.md">Docs</a>
 </p>
 
-> **Early Development - 0.1.0.** The viewer is usable for evaluation, with known
-> limitations. The per-user installer and portable ZIP on the
-> [releases page](https://github.com/cubiix3/Kova-Image/releases) are unsigned
-> and not yet tested on a clean machine; see the
-> [validation record](docs/VALIDATION.md).
+<p align="center">
+  <img src="docs/images/viewer.png" width="900" alt="Kova Image showing a photo with floating navigation, zoom and fit controls">
+</p>
 
-## What is Kova Image?
+---
 
-A native Windows viewer for images, animations and local video, in the same
-family as [Kova Screen](https://github.com/cubiix3/Kova-Screen). Built with
-**Rust, Slint and official Windows APIs**. Open a file, see it, and move
-through its folder. Kova Image is a viewer, not an editor.
+## Why Kova Image?
+
+Opening a picture should take a moment, not a splash screen. Kova Image opens
+a file, shows it, and lets you move through its folder with the arrow keys.
+The interface stays out of the way: a compact titlebar and floating controls
+fade out after two seconds so the image is all you see.
+
+It is a **viewer, not an editor**, built with **Rust, [Slint](https://slint.dev)
+and official Windows APIs**. It is a sibling of
+[Kova Screen](https://github.com/cubiix3/Kova-Screen).
+
+> [!NOTE]
+> **Early development, version 0.1.0.** Kova Image is ready to try, with known
+> limitations. Release builds are unsigned, so Windows SmartScreen warns on
+> first run. See the [validation record](docs/VALIDATION.md) for what has been
+> tested.
+
+## Highlights
+
+|  |  |
+| --- | --- |
+| ⚡ **Instant navigation** | The current image always wins. The next two files in your direction of travel are decoded in advance. |
+| 🎞️ **Animations and video** | GIF, APNG and animated WebP with correct timing and loops. Local MP4, MOV and MKV through Windows Media Foundation. |
+| 🎨 **Real color** | Embedded ICC profiles are converted to sRGB. EXIF orientation is applied automatically. |
+| 🧠 **Bounded memory** | Images are decoded at the size your view needs, and the cache is capped at 192 MiB of pixels. |
+| 🛡️ **Careful with files** | Every file is treated as untrusted. Deleting goes to the Recycle Bin, and `Ctrl+Z` brings it back. |
+| 🪟 **At home on Windows** | Per-user install, Open with registration, high contrast and reduced motion follow your system settings. |
 
 ## Screenshots
 
-<p align="center">
-  <img src="docs/images/empty.png" width="960" alt="Kova Image's dark start screen, compact titlebar, Open file button and floating controls">
-  <br><sub>A compact titlebar and floating controls keep your content central.</sub>
-</p>
-
-| Images and animations | Local video |
+| Start screen | Local video |
 | :---: | :---: |
-| [![Image view with navigation, zoom and fit controls](docs/images/viewer.png)](docs/images/viewer.png) | [![Video playback with timeline, time and volume controls](docs/images/video.png)](docs/images/video.png) |
-| Fit, zoom, pan and view transforms with brief action feedback | Play, pause, seek and volume with automatically hiding controls |
+| [![Dark start screen with a compact titlebar and an Open file button](docs/images/empty.png)](docs/images/empty.png) | [![Video playback with timeline, time and volume controls](docs/images/video.png)](docs/images/video.png) |
+| Nothing to set up. Open or drop a file. | Play, pause, seek and volume, with controls that hide themselves. |
 
-These are captures from the running application, using original synthetic test
-files. No mock UI or personal media. Click an image to view it at full size.
+All screenshots come from the running app with synthetic test files. They are
+not mockups and contain no personal media.
 
-## Goals
+## Download
 
-- Keep opening and navigation responsive, including while decoding fails.
-- Bound image memory, cache retention, speculative work and queued requests.
-- Keep the image central, with a compact, dark interface.
-- No accounts, cloud, telemetry, gallery database or background services.
+1. Download **`Kova-Image-<version>-x64-setup.exe`** from the
+   [latest release](https://github.com/cubiix3/Kova-Image/releases/latest).
+2. Run it. It installs for your user only and needs no administrator rights.
+3. Optional: in the app, open **More → Settings → Register Kova Image for Open with**,
+   then pick Kova Image as your default viewer in Windows Settings.
 
-## Current status
+Prefer not to install? Download the **portable ZIP** from the same release,
+unpack it anywhere and start `kova-image.exe`. Uninstall through
+**Settings → Apps** like any other app.
 
-Windows 10/11 x64 is the target. Version 0.1.0 opens a file, plays animations
-and local video, and moves through a mixed folder. Images are kept at the size
-the current view needs. An embedded color profile is shown as sRGB, and the
-info panel can show the date, camera and exposure. High contrast and reduced
-motion follow Windows.
+<details>
+<summary><b>Command line options</b></summary>
 
-This is an early build. There is no stability or performance guarantee.
-Hardware variety, monitor color, screen readers and hostile files still need
-more validation.
+```powershell
+kova-image.exe                                    # start screen
+kova-image.exe "C:\Pictures\example.png"          # open an image
+kova-image.exe "C:\Videos\example.mp4"            # open a video
+kova-image.exe --software "C:\Pictures\photo.jpg" # CPU renderer instead of OpenGL
+kova-image.exe --register-file-associations       # per-user Open with registration
+```
+
+Registration never touches the protected `UserChoice` defaults; Windows keeps
+the final say. See [file associations](docs/FILE_ASSOCIATIONS.md). Video needs
+the Windows Media Foundation components, which Windows N editions may lack.
+
+</details>
 
 ## Features
 
-| Area | Implemented behavior |
+| Area | What you get |
 | --- | --- |
-| Open and navigate | CLI path, native picker, file drop, natural sorting, previous/next/first/last and mixed-media folders |
-| Images | Fit, fit width, 100%, cursor-centered zoom, pan, rotation and horizontal/vertical flip |
-| Animation | GIF, animated WebP and APNG, with pause, timing, loops and bounded frame storage |
-| Video | Play/pause, timeline, current time/duration, mute/volume and optional loop |
-| Interface | Compact titlebar, floating controls with windowed/fullscreen auto-hide, action feedback and visible keyboard focus |
-| Windows | Copy image or path, Recycle Bin, Show in Explorer, Open with and opt-in app registration |
-
-Rotation and flips affect the view only. Copy Image copies the decoded frame
-before view transforms. Original files are never rewritten. Each launch opens
-an independent window; there is no single-instance IPC service.
+| **Open and browse** | Command line, file picker or drag and drop. Natural sorting (`img2` before `img10`), first/last, and folders that mix images and videos. |
+| **View** | Fit to window, fit width, 100%, zoom around the cursor, pan, rotate and flip. The view is never written back to the file. |
+| **Animation** | Pause and resume, per-frame timing, loop counts, and the first frame appears while the rest decodes. |
+| **Video** | Play/pause, timeline, elapsed and total time, volume, mute and optional looping. Video keeps playing while you drag the window. |
+| **Windows actions** | Copy image or path, move to the Recycle Bin and undo, Show in Explorer, Open with. |
+| **Interface** | Dark, compact chrome, fullscreen, auto-hiding controls, brief on-screen feedback and visible keyboard focus. |
 
 ## Supported formats
 
-| Format | Current implementation |
+| Format | Support |
 | --- | --- |
-| JPEG / JPG | Still image; EXIF orientation applied. An embedded ICC profile is converted to sRGB |
-| PNG | Still image |
-| GIF | Animation, timing, loops, transparency and disposal |
-| WebP | Still and animated |
-| APNG | Animation, timing, loops, blending and disposal |
-| BMP | Still image |
-| TIFF | First image/page |
-| ICO | Decoder-selected icon image |
-| MP4 / M4V, MOV, MKV | Windows codecs; H.264/AAC tested in MP4, MOV and MKV |
-| WebM | Depends on the Windows codec. Without one, the file stays navigable and shows an error |
-| AVIF, HEIC/HEIF, JPEG XL, SVG, RAW | Not supported |
+| **JPEG** | Still image with EXIF orientation and ICC color |
+| **PNG / APNG** | Still images and animation with blending and disposal |
+| **GIF** | Animation with timing, loops, transparency and disposal |
+| **WebP** | Still and animated |
+| **BMP, ICO** | Still image |
+| **TIFF** | First page |
+| **MP4 / M4V, MOV, MKV** | Through Windows codecs; H.264/AAC is tested |
+| **WebM** | Plays if a Windows codec is installed, otherwise shows a clear error |
+| AVIF, HEIC/HEIF, JPEG XL, SVG, RAW | Not supported yet ([roadmap](#roadmap)) |
 
-Decoders validate file contents. Extensions filter folder navigation and the
-file picker, and suggest video handling. An explicitly opened supported image
-can have an unusual extension. Video containers require a recognized header and a local
-drive path. Container support does not guarantee every codec/profile will play.
-No codec downloads, streaming, DRM, subtitles or audio-only player are provided.
-See [video architecture and limits](docs/VIDEO.md). SVG is never rendered.
+Formats are detected from file content, not only the extension. Videos must be
+self-contained local files; streaming, subtitles and DRM are out of scope. See
+the [video architecture](docs/VIDEO.md) for details.
 
-## Installation / Running
+## Keyboard and mouse
 
-Download `Kova-Image-<version>-x64-setup.exe` from the
-[releases page](https://github.com/cubiix3/Kova-Image/releases) and run it. It
-installs for the current user only, so it needs no administrator rights, and it
-uninstalls through Settings > Apps. The build is unsigned, so SmartScreen warns
-on first run. A portable ZIP is published alongside it if you would rather not
-install anything.
+| Action | Shortcut |
+| --- | --- |
+| Open a file | `Ctrl+O` or drag a file onto the window |
+| Previous / next | `←` / `→`, mouse Back / Forward |
+| First / last | `Home` / `End` |
+| Zoom in / out | `+` / `-` or the mouse wheel |
+| Fit / fit width / 100% | `0` / `W` / `1` |
+| Pan | Drag with the left mouse button |
+| Fullscreen | `F11` or double-click; `Esc` to leave |
+| Pause / play | `Space` |
+| Seek video 5 s | `Ctrl+←` / `Ctrl+→` |
+| Mute | `M` |
+| Rotate right / left | `R` / `Shift+R` |
+| Flip horizontal / vertical | `H` / `V` |
+| File info | `I` |
+| Copy image / copy path | `Ctrl+C` / `Ctrl+Shift+C` |
+| Move to Recycle Bin / undo | `Delete` / `Ctrl+Z` |
 
-Command line, whether installed or built from source:
-
-```powershell
-.\target\release\kova-image.exe
-.\target\release\kova-image.exe "C:\Pictures\example.png"
-.\target\release\kova-image.exe "C:\Videos\example.mp4"
-.\target\release\kova-image.exe --software "C:\Pictures\example.png"
-```
-
-`--software` selects the rendering fallback. The default uses OpenGL through
-Slint's FemtoVG renderer. Keep any packaged runtime DLLs alongside the executable.
-See [Windows builds and packaging](docs/WINDOWS_RELEASE.md). Video also requires
-the Windows Media Foundation components (Windows N installations may lack them).
-
-To enable **Open with**, keep the executable in a permanent folder - the
-installer offers this as an optional step - then use Settings >
-**Register Kova Image for Open with**, followed by **Choose default viewer in
-Windows Settings**. Or run `kova-image.exe --register-file-associations`.
-Registration is per-user, needs no elevation and never changes protected
-`UserChoice` defaults. [Registration details](docs/FILE_ASSOCIATIONS.md).
+In Settings you can switch the mouse wheel from zooming to browsing, turn off
+auto-hide, and change looping and autoplay. Settings are stored in
+`%LOCALAPPDATA%\Kova Image\settings.conf`.
 
 ## Building from source
 
-Install Rust and the **Desktop development with C++** workload, including a
-Windows SDK, from either Visual Studio or the standalone Visual Studio Build
-Tools. The pinned toolchain is Rust 1.95.0 (MSVC).
+You need Rust and the **Desktop development with C++** workload with a Windows
+SDK, from Visual Studio or the standalone Build Tools. The toolchain is pinned
+to Rust 1.95.0 (MSVC) in `rust-toolchain.toml`.
 
 ```powershell
 git clone https://github.com/cubiix3/Kova-Image.git
 cd Kova-Image
-.\scripts\cargo-msvc.ps1 -CargoArgs @('build', '--locked', '--release', '--bin', 'kova-image')
+.\scripts\cargo-msvc.ps1 build --locked --release --bin kova-image
 ```
 
-From a Visual Studio Developer PowerShell:
+`cargo-msvc.ps1` finds Visual Studio and loads its build environment for you.
+Before opening a pull request, run the same checks as CI:
 
 ```powershell
-cargo fmt --all -- --check
-cargo check --locked --all-targets
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+.\scripts\cargo-msvc.ps1 fmt --all -- --check
+.\scripts\cargo-msvc.ps1 clippy --locked --all-targets -- -D warnings
+.\scripts\cargo-msvc.ps1 test --locked
 ```
 
-The first build downloads Rust dependencies. Application startup performs no
-update check or dependency download. [Dependency decisions](docs/DEPENDENCIES.md)
-distinguish build tooling from shipped code.
+Packaging and the installer are described in
+[Windows builds and packaging](docs/WINDOWS_RELEASE.md).
 
-## Keyboard / Mouse controls
+## Under the hood
 
-| Action | Control |
-| --- | --- |
-| Open image / video | `Ctrl+O` or drop a file |
-| Previous / next | `Left` / `Right`, mouse Back / Forward |
-| First / last | `Home` / `End` |
-| Zoom in / out | `+` / `-`, mouse wheel |
-| Fit / fit width / 100% | `0` / `W` / `1` |
-| Pan | Drag the image with the left mouse button |
-| Fullscreen / exit fullscreen | `F11` / `Esc`; double-click the canvas to toggle |
-| Pause / resume animation or video | `Space` |
-| Seek video by 5 seconds | `Ctrl+Left` / `Ctrl+Right` |
-| Mute / unmute video | `M` |
-| Rotate right / left | `R` / `Shift+R` |
-| Flip horizontal / vertical | `H` / `V` |
-| File information | `I` |
-| Copy image / path (video: both copy path) | `Ctrl+C` / `Ctrl+Shift+C` |
-| Move to Recycle Bin | `Delete` |
-| Restore the last recycled file | `Ctrl+Z` |
+<details>
+<summary><b>Performance</b></summary>
 
-Image zoom, rotation and flip tools apply only to images. Video uses Fit to
-Window. Timeline and volume accept pointer dragging; focused sliders use arrow
-keys. Left/Right otherwise navigate the same mixed-media folder.
+- One decode worker holds only the latest request, so rapid key presses never
+  queue up work. Stale results are dropped before they reach the screen.
+- Images are fitted to the pixels the view needs and cached at that size in a
+  weighted LRU (192 MiB of pixels, 32 entries). Zooming past it decodes the
+  original again.
+- Folder scans read names and types only: no thumbnails, no database.
+- Video runs on its own worker. Media Foundation keeps audio and video in sync,
+  only the latest frame is kept, and presentation is capped at 3840 × 2160.
+  Minimizing pauses playback.
 
-The More panel contains Windows actions and settings. Shortcuts are defined in
-`src/input.rs`. Wheel navigation can replace wheel zoom in Settings.
-Settings live in `%LOCALAPPDATA%\Kova Image\settings.conf`.
+Numbers and methodology: [performance protocol](docs/PERFORMANCE.md) ·
+[video measurements](docs/VIDEO_MEASUREMENTS.md) · [design notes](docs/DESIGN.md)
 
-Viewing controls float over the image and hide after two seconds of inactivity.
-Move the pointer or press Tab to bring them back; the windowed titlebar stays
-available. Zoom, playback and volume shortcuts show brief feedback even with
-the controls hidden. Auto-hide can be disabled in Settings.
+</details>
 
-## Performance philosophy
+<details>
+<summary><b>Security</b></summary>
 
-The current image takes priority over preloads. A single decode worker replaces
-pending requests, checks cancellation where codecs permit it and preloads only
-the next/previous image. Folder scanning and Shell operations stay off the UI thread.
+- Every image and video is untrusted input. Dimensions are checked with
+  overflow-safe arithmetic, and file size, decoded pixels and animation frames
+  have hard limits.
+- Files are opened without following reparse points and locked against
+  writes while decoding. MP4/MOV files that reference external data are rejected.
+- Decoder panics are caught off the UI thread. Opening a file never triggers
+  network access.
+- Recycling refuses a permanent-delete fallback. Restoring asks before it
+  would replace an existing file.
 
-The weighted LRU retains at most **192 MiB of pixel data and 32 entries**.
-Displayed pixels, decoder scratch space and GPU textures cost additional memory;
-this is not a process-RAM cap. Still images and animations are fitted to the
-pixels the current view needs, then cached at that size. Choosing 100% or
-zooming past the retained bitmap decodes the original again. The first frame
-of an animation is shown while the remaining frames are still being collected.
-Codecs still allocate their full canvas before that fit; the retained bitmap
-is what shrinks.
-
-Video initializes its own worker on demand. Media Foundation owns audio/video
-timing; a bounded mailbox retains the latest pending frame. Pixel-buffer
-preparation runs on the worker, with D3D readback and Slint upload as explicit
-costs. Presentation follows the window and is capped at **3840 x 2160**, without
-enlarging a smaller source. Minimizing pauses video and audio.
-
-[Measurement protocol](docs/PERFORMANCE.md) -
-[Recorded startup, video CPU and RAM](docs/VIDEO_MEASUREMENTS.md) -
-[Interface design](docs/DESIGN.md)
-
-## Security philosophy
-
-Every image and video is untrusted input. Validate dimensions with overflow-safe arithmetic,
-limit file size and decoded storage, reject unsupported formats, and keep decoder
-errors away from the UI thread. Reparse-point files are rejected on Windows;
-open image handles deny writes and deletion while decoding. There is no image-
-initiated network access. Recycle operations veto permanent-deletion fallback.
-
-Resource limits and panic recovery are not a sandbox. Native faults, allocator
-aborts, renderer faults and codec-internal allocations need further defense.
-Read [SECURITY.md](SECURITY.md) and the
-[security architecture](docs/SECURITY_ARCHITECTURE.md). Report sensitive problems
+These limits are not a sandbox. Read [SECURITY.md](SECURITY.md) and the
+[security architecture](docs/SECURITY_ARCHITECTURE.md), and report issues
 privately through GitHub Security Advisories.
+
+</details>
 
 ## Roadmap
 
-- [AVIF](https://github.com/cubiix3/Kova-Image/issues/3), when it can ship without a system codec install or a network build.
-- [Decode that scales inside the codec](https://github.com/cubiix3/Kova-Image/issues/4), plus measured navigation on real photo folders.
-- [Fuzzing and stronger file identity checks](https://github.com/cubiix3/Kova-Image/issues/6).
-- [Signed packages](https://github.com/cubiix3/Kova-Image/issues/5) and a clean-machine install check.
-- Monitor color, screen readers, and more GPU and DPI coverage.
-- HEIC/HEIF and JPEG XL only after a license and memory review. SVG and RAW stay out unless that review says otherwise.
+- [ ] [AVIF](https://github.com/cubiix3/Kova-Image/issues/3), once it can ship without a system codec or a network build
+- [ ] [Downscaling inside the codec](https://github.com/cubiix3/Kova-Image/issues/4) and measurements on real photo folders
+- [ ] [Fuzzing and stronger file identity checks](https://github.com/cubiix3/Kova-Image/issues/6)
+- [ ] [Signed releases](https://github.com/cubiix3/Kova-Image/issues/5) and a clean-machine install test
+- [ ] Wider coverage of monitor color, screen readers, GPUs and DPI setups
+- [ ] HEIC/HEIF and JPEG XL after a license and memory review
 
-No image editing, albums, tags, cloud, AI, streaming, music library or PDF support is planned.
+Out of scope by design: editing, albums, tags, cloud sync, AI features,
+streaming and PDF.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Keep changes focused on the viewer.
-Architecture and current tradeoffs are described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Bug reports and focused pull requests are welcome. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) first, and see
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit together.
 
 ## License
 
-MIT OR Apache-2.0.
-See [LICENSE](LICENSE), [LICENSE-MIT](LICENSE-MIT), and
-[LICENSE-APACHE](LICENSE-APACHE). Dependencies retain their own licenses.
+Kova Image is dual-licensed under [MIT](LICENSE-MIT) or
+[Apache-2.0](LICENSE-APACHE), at your option. Dependencies keep their own
+licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
-Made with [Slint](https://slint.dev). See
-[third-party notices](THIRD_PARTY_NOTICES.md) for licensing and Kova asset provenance.
-
-<p align="center"><a href="https://slint.dev"><img src="assets/made-with-slint.png" width="150" alt="Made with Slint"></a></p>
+<p align="center">
+  <a href="https://slint.dev"><img src="assets/made-with-slint.png" width="140" alt="Made with Slint"></a>
+</p>
