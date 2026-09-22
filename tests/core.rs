@@ -401,3 +401,31 @@ fn animation_frame_limit_and_truncated_frame() {
     let path = temp.write("truncated.gif", &bytes[..bytes.len() / 2]);
     assert!(decoder::load(&path, &Generation::default().next()).is_err());
 }
+#[test]
+fn single_frame_gif_is_fitted_once() {
+    let temp = Temp::new();
+    let image = DynamicImage::ImageRgba8(RgbaImage::from_fn(80, 40, |x, _| {
+        image::Rgba([x as u8, 20, 40, 255])
+    }));
+    let mut bytes = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Gif)
+        .unwrap();
+    let path = temp.write("still.gif", &bytes);
+    let fitted = decoder::load_target(
+        &path,
+        &Generation::default().next(),
+        decoder::Target {
+            max_width: 20,
+            max_height: 10,
+        },
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!((fitted.source_width, fitted.source_height), (80, 40));
+    assert_eq!((fitted.width, fitted.height), (20, 10));
+    assert_eq!(fitted.frames.len(), 1);
+    assert_eq!(fitted.frames[0].rgba.len(), 20 * 10 * 4);
+    let full = decoder::load(&path, &Generation::default().next()).unwrap();
+    assert_eq!((full.width, full.height), (80, 40));
+}

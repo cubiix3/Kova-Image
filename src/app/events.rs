@@ -241,11 +241,17 @@ impl App {
                 if self.settings.wheel_zoom {
                     self.zoom(1.2f32.powf(amount.clamp(-4., 4.)), true);
                 } else if amount != 0. {
-                    self.action(if amount > 0. {
-                        Action::Previous
-                    } else {
-                        Action::Next
-                    });
+                    // Touchpads send many small pixel deltas; step one image
+                    // per notch-equivalent instead of one per event.
+                    if self.wheel.signum() != amount.signum() {
+                        self.wheel = 0.;
+                    }
+                    self.wheel += amount;
+                    if self.wheel.abs() >= 1. {
+                        let back = self.wheel > 0.;
+                        self.wheel = 0.;
+                        self.action(if back { Action::Previous } else { Action::Next });
+                    }
                 }
                 return true;
             }

@@ -245,8 +245,15 @@ impl App {
         ui.set_has_image(true);
         ui.set_error_title("".into());
         ui.set_error_detail("".into());
-        if self.undo.is_some() {
-            self.status("Moved to the Recycle Bin. Ctrl+Z restores it.");
+        // The deletion notice survives the preview and is shown once more
+        // for the image that replaced the deleted one, never after that.
+        if self.undo_notice {
+            if !preview {
+                self.undo_notice = false;
+                if self.undo.is_some() {
+                    self.status("Moved to the Recycle Bin. Ctrl+Z restores it.");
+                }
+            }
         } else {
             ui.set_status("".into());
         }

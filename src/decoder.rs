@@ -213,7 +213,7 @@ fn decode(
     let orientation = probe
         .orientation()
         .unwrap_or(image::metadata::Orientation::NoTransforms);
-    let icc = probe.icc_profile().ok().flatten();
+    let srgb = srgb_transform(probe.icc_profile().ok().flatten().as_deref());
     let photo = photo_from_exif(probe.exif_metadata().ok().flatten().as_deref());
     drop(probe);
     let mut source = BufReader::new(Cancellable {
@@ -222,6 +222,9 @@ fn decode(
     });
     source.seek(SeekFrom::Start(0))?;
     let mut loops = Loops(Some(1));
+    // Animation paths fit and colour-convert every frame as it arrives, even
+    // when there is only one; still paths hold the full, unconverted canvas.
+    let mut fitted = false;
     let mut frames = match format {
         ImageFormat::Gif => {
             // GIF stores *additional* repetitions; image's generic loop API does
@@ -230,6 +233,7 @@ fn decode(
             source.seek(SeekFrom::Start(0))?;
             let mut decoder = image::codecs::gif::GifDecoder::new(source)?;
             decoder.set_limits(security::limits())?;
+            fitted = true;
             collect(
                 decoder.into_frames(),
                 width,
@@ -247,7 +251,7 @@ fn decode(
                         &photo,
                     ))
                 },
-                &icc,
+                &srgb,
             )?
         }
         ImageFormat::Png => {
@@ -255,6 +259,7 @@ fn decode(
             if decoder.is_apng()? {
                 let decoder = decoder.apng()?;
                 loops = loop_count(decoder.loop_count());
+                fitted = true;
                 collect(
                     decoder.into_frames(),
                     width,
@@ -272,7 +277,7 @@ fn decode(
                             &photo,
                         ))
                     },
-                    &icc,
+                    &srgb,
                 )?
             } else {
                 vec![still(decoder)?]
@@ -283,6 +288,7 @@ fn decode(
             decoder.set_limits(security::limits())?;
             if decoder.has_animation() {
                 loops = loop_count(decoder.loop_count());
+                fitted = true;
                 collect(
                     decoder.into_frames(),
                     width,
@@ -300,7 +306,7 @@ fn decode(
                             &photo,
                         ))
                     },
-                    &icc,
+                    &srgb,
                 )?
             } else {
                 vec![still(decoder)?]
@@ -316,31 +322,42 @@ fn decode(
     if Stamp::from_metadata(&monitor.metadata()?) != stamp || Stamp::read(path)? != stamp {
         return Err(Error::Changed);
     }
+    let (mut stored_w, mut stored_h) = if fitted {
+        fitted_size(width, height, target)
+    } else {
+        (width, height)
+    };
     if frames.len() == 1 && orientation != image::metadata::Orientation::NoTransforms {
         let rgba = std::mem::take(&mut frames[0].rgba);
         let mut image = image::DynamicImage::ImageRgba8(
-            image::RgbaImage::from_raw(width, height, rgba).ok_or(Error::Dimensions)?,
+            image::RgbaImage::from_raw(stored_w, stored_h, rgba).ok_or(Error::Dimensions)?,
         );
         image.apply_orientation(orientation);
-        width = image.width();
-        height = image.height();
+        if matches!(
+            orientation,
+            image::metadata::Orientation::Rotate90
+                | image::metadata::Orientation::Rotate270
+                | image::metadata::Orientation::Rotate90FlipH
+                | image::metadata::Orientation::Rotate270FlipH
+        ) {
+            std::mem::swap(&mut width, &mut height);
+        }
+        stored_w = image.width();
+        stored_h = image.height();
         frames[0].rgba = image.into_rgba8().into_raw();
     }
     let source_width = width;
     let source_height = height;
-    // Animation frames are fitted and converted as they arrive. A single
-    // frame, including a one-frame animation, is fitted here.
-    if frames.len() < 2 {
+    if fitted {
+        width = stored_w;
+        height = stored_h;
+    } else {
         let rgba = std::mem::take(&mut frames[0].rgba);
         let (rgba, w, h) = scale_rgba(rgba, width, height, target)?;
         frames[0].rgba = rgba;
         width = w;
         height = h;
-        to_srgb(&mut frames[0].rgba, icc.as_deref());
-    } else {
-        let (w, h) = fitted_size(source_width, source_height, target);
-        width = w;
-        height = h;
+        to_srgb(&mut frames[0].rgba, &srgb);
     }
     Ok(Decoded {
         width,
@@ -374,7 +391,7 @@ fn collect(
     target: Target,
     ticket: &Ticket,
     preview: &mut dyn FnMut(Frame, u32, u32),
-    icc: &Option<Vec<u8>>,
+    srgb: &Srgb,
 ) -> Result<Vec<Frame>, Error> {
     let (stored_w, stored_h) = fitted_size(width, height, target);
     // Count the source canvas, matching the stored-budget admission used before
@@ -391,7 +408,7 @@ fn collect(
             if (w, h) != (stored_w, stored_h) {
                 return Err(Error::Dimensions);
             }
-            to_srgb(&mut rgba, icc.as_deref());
+            to_srgb(&mut rgba, srgb);
             result[0].rgba = rgba;
             preview(result[0].clone(), stored_w, stored_h);
         }
@@ -415,7 +432,7 @@ fn collect(
                 return Err(Error::Dimensions);
             }
             rgba = scaled;
-            to_srgb(&mut rgba, icc.as_deref());
+            to_srgb(&mut rgba, srgb);
         }
         result.push(Frame {
             rgba,
@@ -465,25 +482,28 @@ fn scale_rgba(
     let (w, h) = small.dimensions();
     Ok((small.into_raw(), w, h))
 }
-fn to_srgb(rgba: &mut [u8], icc: Option<&[u8]>) {
-    let Some(icc) = icc.filter(|p| p.len() >= 128 && rgba.len().is_multiple_of(4)) else {
-        return;
-    };
+type Srgb = Option<std::sync::Arc<dyn moxcms::InPlaceTransformExecutor<u8> + Send + Sync>>;
+/// Built once per file, then applied to each frame.
+fn srgb_transform(icc: Option<&[u8]>) -> Srgb {
+    let icc = icc.filter(|p| p.len() >= 128)?;
     // image-rs exposes the profile and does not convert pixels. moxcms is the
     // same library image already uses for CICP, applied here to 8-bit RGBA.
     // https://docs.rs/image/0.25.10/image/trait.ImageDecoder.html#method.icc_profile
-    let Ok(source) = moxcms::ColorProfile::new_from_slice(icc) else {
-        return;
-    };
-    let destination = moxcms::ColorProfile::new_srgb();
-    let Ok(transform) = source.create_in_place_transform_8bit(
-        moxcms::Layout::Rgba,
-        &destination,
-        moxcms::TransformOptions::default(),
-    ) else {
-        return;
-    };
-    let _ = transform.transform(rgba);
+    let source = moxcms::ColorProfile::new_from_slice(icc).ok()?;
+    source
+        .create_in_place_transform_8bit(
+            moxcms::Layout::Rgba,
+            &moxcms::ColorProfile::new_srgb(),
+            moxcms::TransformOptions::default(),
+        )
+        .ok()
+}
+fn to_srgb(rgba: &mut [u8], transform: &Srgb) {
+    if let Some(transform) = transform
+        && rgba.len().is_multiple_of(4)
+    {
+        let _ = transform.transform(rgba);
+    }
 }
 fn photo_from_exif(bytes: Option<&[u8]>) -> PhotoInfo {
     let Some(bytes) = bytes.filter(|b| b.len() >= 16) else {

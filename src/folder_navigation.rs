@@ -116,15 +116,21 @@ fn sort_entries(
 pub struct Navigation {
     pub files: Vec<PathBuf>,
     pub index: usize,
+    /// Direction of the last move: 1 forward, -1 back, 0 none yet.
+    direction: isize,
 }
 impl Navigation {
     pub fn set(&mut self, files: Vec<PathBuf>, current: &Path) {
         self.index = files.iter().position(|p| p == current).unwrap_or(0);
         self.files = files;
+        self.direction = 0;
     }
     pub fn step(&mut self, delta: isize) -> Option<PathBuf> {
         if self.files.is_empty() {
             return None;
+        }
+        if delta != 0 {
+            self.direction = delta.signum();
         }
         self.index = self
             .index
@@ -134,23 +140,27 @@ impl Navigation {
     }
     pub fn first(&mut self) -> Option<PathBuf> {
         self.index = 0;
+        self.direction = 1;
         self.files.first().cloned()
     }
     pub fn last(&mut self) -> Option<PathBuf> {
         self.index = self.files.len().saturating_sub(1);
+        self.direction = -1;
         self.files.last().cloned()
     }
+    /// Preload candidates, most likely first: the next two in the direction
+    /// of travel, or one on each side before the user has moved.
     pub fn neighbors(&self) -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-        if let Some(p) = self.files.get(self.index + 1) {
-            paths.push(p.clone());
-        }
-        if self.index > 0
-            && let Some(p) = self.files.get(self.index - 1)
-        {
-            paths.push(p.clone());
-        }
-        paths
+        let offsets: [isize; 2] = match self.direction {
+            1 => [1, 2],
+            -1 => [-1, -2],
+            _ => [1, -1],
+        };
+        offsets
+            .into_iter()
+            .filter_map(|offset| self.index.checked_add_signed(offset))
+            .filter_map(|index| self.files.get(index).cloned())
+            .collect()
     }
 }
 #[cfg(test)]
@@ -187,6 +197,19 @@ mod tests {
         assert_eq!(n.first(), Some("1".into()));
         assert_eq!(n.step(-1), Some("1".into()));
         assert_eq!(n.last(), Some("3".into()));
+    }
+    #[test]
+    fn preloads_follow_the_direction_of_travel() {
+        let files: Vec<PathBuf> = ["1", "2", "3", "4", "5"].map(PathBuf::from).into();
+        let mut n = Navigation::default();
+        n.set(files, Path::new("3"));
+        assert_eq!(n.neighbors(), vec![PathBuf::from("4"), "2".into()]);
+        n.step(1);
+        assert_eq!(n.neighbors(), vec![PathBuf::from("5")]);
+        n.step(-1);
+        assert_eq!(n.neighbors(), vec![PathBuf::from("2"), "1".into()]);
+        n.first();
+        assert_eq!(n.neighbors(), vec![PathBuf::from("2"), "3".into()]);
     }
     #[test]
     fn cached_sort_preserves_natural_order_and_cancellation() {

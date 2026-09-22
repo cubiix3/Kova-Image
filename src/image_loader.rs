@@ -6,6 +6,7 @@ use crate::{
     security::{self, Generation, Ticket},
 };
 use std::{
+    collections::VecDeque,
     path::PathBuf,
     sync::{Arc, Condvar, Mutex},
     thread::{self, JoinHandle},
@@ -31,6 +32,26 @@ pub enum Event {
         path: PathBuf,
         result: Result<Vec<PathBuf>, Error>,
     },
+}
+impl Event {
+    pub fn id(&self) -> u64 {
+        match self {
+            Self::Video { id, .. } | Self::Image { id, .. } | Self::Folder { id, .. } => *id,
+        }
+    }
+    fn is_image(&self) -> bool {
+        matches!(self, Self::Image { .. })
+    }
+}
+/// Queue a loader event for the UI without ever dropping the newest result.
+/// Requests are served in id order, so older ids are stale once a newer one
+/// arrives, and a later image replaces an earlier preview of the same request.
+/// The queue therefore holds at most one image, one video and one folder event.
+pub fn coalesce(queue: &mut VecDeque<Event>, event: Event) {
+    let id = event.id();
+    let image = event.is_image();
+    queue.retain(|queued| queued.id() >= id && !(image && queued.id() == id && queued.is_image()));
+    queue.push_back(event);
 }
 struct Request {
     ticket: Ticket,
@@ -222,5 +243,46 @@ fn cached_load(
             (Ok(image), false)
         }
         Err(error) => (Err(error), false),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn folder(id: u64) -> Event {
+        Event::Folder {
+            id,
+            path: PathBuf::new(),
+            result: Ok(Vec::new()),
+        }
+    }
+    fn image(id: u64, preview: bool) -> Event {
+        Event::Image {
+            id,
+            path: PathBuf::new(),
+            result: Err(Error::NotFound),
+            elapsed: std::time::Duration::ZERO,
+            cached: false,
+            preview,
+        }
+    }
+    #[test]
+    fn newest_events_are_kept_and_stale_ones_dropped() {
+        let mut queue = VecDeque::new();
+        for id in 1..=10 {
+            coalesce(&mut queue, image(id, true));
+            coalesce(&mut queue, image(id, false));
+            coalesce(&mut queue, folder(id));
+        }
+        assert_eq!(queue.len(), 2);
+        assert!(matches!(
+            queue[0],
+            Event::Image {
+                id: 10,
+                preview: false,
+                ..
+            }
+        ));
+        assert!(matches!(queue[1], Event::Folder { id: 10, .. }));
     }
 }
