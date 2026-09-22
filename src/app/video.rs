@@ -131,8 +131,10 @@ impl App {
                     ui.set_picture(slint::Image::from_rgba8(frame));
                     ui.set_has_image(true);
                     ui.set_loading(false);
-                    ui.set_status("".into());
+                    // Only the first frame replaces the loading status; later
+                    // frames must not wipe notices such as "Path copied".
                     if was_loading {
+                        self.media_shown(false);
                         self.wake_chrome();
                     }
                     if !self.render_notifications {

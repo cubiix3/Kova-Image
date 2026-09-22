@@ -110,8 +110,8 @@ impl App {
                     self.animation.stop();
                     if let Some(next) = self.nav.step(0) {
                         // The folder list is already current; no rescan.
-                        self.undo_notice = self.undo.is_some();
                         self.open(next, false);
+                        self.undo_notice = self.undo.is_some();
                     } else {
                         self.image = None;
                         self.video_stamp = None;

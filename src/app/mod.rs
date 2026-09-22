@@ -368,6 +368,9 @@ impl App {
                 }
             }
         };
+        // Any new navigation drops a pending deletion notice; the delete path
+        // sets it again after opening the replacement.
+        self.undo_notice = false;
         // Ctrl+Z restores the last deletion only while its folder is open.
         if self
             .undo
