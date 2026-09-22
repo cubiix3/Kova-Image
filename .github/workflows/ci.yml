@@ -33,3 +33,5 @@ jobs:
         run: cargo test --locked
       - name: Release executable
         run: cargo build --locked --release --bin kova-image
+      - name: Portable package and license check
+        run: .\scripts\package.ps1

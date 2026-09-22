@@ -26,7 +26,8 @@ It intentionally fails closed if a registry package has no license file. Review
 Slint attribution, required runtime DLLs and clean-machine behavior before
 distributing. No GitHub release is published and existing packages are not deleted.
 
-The repository CI also compiles the release EXE, but never publishes a release.
+The repository CI compiles the release EXE and builds the portable ZIP with its
+license check, but never publishes a release.
 Future GitHub Releases can attach the reviewed ZIP/checksum generated here.
 The release executable omits the debug-only renderer capture hook.
 
@@ -61,6 +62,17 @@ unsigned, so SmartScreen warns on first run.
 The package and installer scripts have been run successfully on the development
 machine, including an install/uninstall/reinstall cycle. That is a local
 evaluation result, not a validated clean-machine installation test.
+
+## Clean-machine acceptance
+
+Before publishing, test the ZIP and installer in a fresh Windows 10/11 x64 VM
+without Rust or Visual Studio. Verify the SHA-256 files, launch a generated PNG
+from the extracted ZIP, repeat with `--software`, and play a generated MP4.
+Install without the optional association task and confirm current defaults stay
+unchanged. Then register through Settings, check Open with, uninstall, and confirm
+the viewer and its own registration are removed. Record the Windows build,
+Media Foundation availability, any missing runtime DLLs and the results in
+`docs/VALIDATION.md`.
 
 Per-user registration and a Default Apps settings helper are implemented; see
 [FILE_ASSOCIATIONS.md](FILE_ASSOCIATIONS.md). Portable packaging itself does not

@@ -13,10 +13,11 @@ release acceptance claim.
   extended Windows paths, and animation timing/loops/disposal.
 - Actual generated JPEG, PNG, WebP, BMP, TIFF, ICO, GIF, APNG and animated WebP
   files pass through the production decoder in integration tests.
-- Windows CI runs formatting, check, strict Clippy, tests and release compilation.
+- Windows CI is configured to run formatting, check, strict Clippy, tests,
+  release compilation and portable packaging.
 - A separate cargo-audit workflow leaves maintenance warnings visible.
 - Local formatting, check, strict Clippy, tests and release compilation pass.
-  The current suite contains **29 passing tests**, with no ignored tests.
+  The current suite contains **33 passing tests**, with no ignored tests.
 - The dependency graph is populated; GitHub's SBOM endpoint returns packages.
 - Dependabot alerts/security updates, secret scanning, push protection and private
   vulnerability reporting were enabled and read back from GitHub's API.
@@ -81,6 +82,28 @@ captures are published in documentation. See [DESIGN.md](DESIGN.md).
 
 The initial code is suitable for evaluation and iteration, not a claim that every
 V1 objective or every hostile image is already handled.
+
+## Navigation and accessibility, 2026-09-22
+
+The GUI smoke test exposed a startup race: display-size refinement could replace
+the first request before its folder scan completed, leaving Previous/Next disabled.
+The refinement now carries the pending scan. The hardware- and software-rendered
+GUI smoke tests pass navigation and the complete image, animation, focus and
+compact-layout path in the final local build. Two earlier software runs failed
+at synthetic pointer events in fullscreen or the small-window More button, so
+the harness remains timing-sensitive. Both video GUI smoke tests passed.
+
+With Slint's accessibility feature enabled, Windows UI Automation exposed the
+video seek and volume controls as sliders with names and live values (observed
+`0:01 / 0:06` and `70%`). Narrator behavior and physical high-contrast/DPI changes
+remain untested. Generated MP4, MOV and MKV passed the native video probe;
+WebM still returned the missing-codec error `0xC00D5212` on this machine.
+
+The local portable package was built with the new AccessKit license texts. Its
+SHA-256 matched, extraction contained all four active AccessKit license folders,
+and the extracted executable opened a generated JPEG through the software path.
+This is still a developer-machine check, not clean-VM acceptance. The new CI
+packaging step has not yet been observed on GitHub.
 
 ## Compact UI and local video
 
