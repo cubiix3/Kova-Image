@@ -345,6 +345,15 @@ fn decode(
         stored_w = image.width();
         stored_h = image.height();
         frames[0].rgba = image.into_rgba8().into_raw();
+        if fitted {
+            // The frame was fitted before the axes swapped; fit the rotated
+            // bitmap again so it stays inside the target. Never enlarges.
+            let rgba = std::mem::take(&mut frames[0].rgba);
+            let (rgba, w, h) = scale_rgba(rgba, stored_w, stored_h, target)?;
+            frames[0].rgba = rgba;
+            stored_w = w;
+            stored_h = h;
+        }
     }
     let source_width = width;
     let source_height = height;
