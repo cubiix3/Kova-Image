@@ -430,35 +430,44 @@ fn single_frame_gif_is_fitted_once() {
     assert_eq!((full.width, full.height), (80, 40));
 }
 #[test]
-fn rotated_single_frame_animation_stays_inside_the_target() {
-    let temp = Temp::new();
-    let mut bytes = Vec::new();
-    {
-        let mut encoder = png::Encoder::new(&mut bytes, 400, 100);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder.set_animated(1, 0).unwrap();
-        let mut writer = encoder.write_header().unwrap();
-        // EXIF orientation 6: rotate 90° clockwise, so 400×100 displays as 100×400.
-        let mut exif = b"MM\0*\0\0\0\x08\0\x01".to_vec();
-        exif.extend_from_slice(&[0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0]);
-        writer
-            .write_chunk(png::chunk::ChunkType(*b"eXIf"), &exif)
-            .unwrap();
-        writer.write_image_data(&vec![128; 400 * 100 * 4]).unwrap();
-    }
-    let path = temp.write("rotated.png", &bytes);
-    let fitted = decoder::load_target(
-        &path,
-        &Generation::default().next(),
-        decoder::Target {
+fn rotated_single_frame_animation_fits_the_target_exactly() {
+    // EXIF orientation 6 rotates 90° clockwise and swaps the axes. Both aspect
+    // directions must land exactly on the fitted size so no refinement loops.
+    for ((w, h), source, stored) in [
+        ((400, 100), (100, 400), (20, 80)),
+        ((100, 400), (400, 100), (100, 25)),
+    ] {
+        let temp = Temp::new();
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, w, h);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.set_animated(1, 0).unwrap();
+            let mut writer = encoder.write_header().unwrap();
+            let mut exif = b"MM\0*\0\0\0\x08\0\x01".to_vec();
+            exif.extend_from_slice(&[0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0]);
+            writer
+                .write_chunk(png::chunk::ChunkType(*b"eXIf"), &exif)
+                .unwrap();
+            writer
+                .write_image_data(&vec![128; (w * h * 4) as usize])
+                .unwrap();
+        }
+        let path = temp.write("rotated.png", &bytes);
+        let target = decoder::Target {
             max_width: 100,
             max_height: 80,
-        },
-        &mut |_| {},
-    )
-    .unwrap();
-    assert_eq!((fitted.source_width, fitted.source_height), (100, 400));
-    assert_eq!((fitted.width, fitted.height), (20, 80));
-    assert_eq!(fitted.frames[0].rgba.len(), 20 * 80 * 4);
+        };
+        let fitted =
+            decoder::load_target(&path, &Generation::default().next(), target, &mut |_| {})
+                .unwrap();
+        assert_eq!((fitted.source_width, fitted.source_height), source);
+        assert_eq!((fitted.width, fitted.height), stored);
+        assert_eq!(
+            fitted.frames[0].rgba.len(),
+            (stored.0 * stored.1 * 4) as usize
+        );
+        assert!(fitted.serves(target));
+    }
 }
