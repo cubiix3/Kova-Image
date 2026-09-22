@@ -245,18 +245,7 @@ impl App {
         ui.set_has_image(true);
         ui.set_error_title("".into());
         ui.set_error_detail("".into());
-        // The deletion notice survives the preview and is shown once more
-        // for the image that replaced the deleted one, never after that.
-        if self.undo_notice {
-            if !preview {
-                self.undo_notice = false;
-                if self.undo.is_some() {
-                    self.status("Moved to the Recycle Bin. Ctrl+Z restores it.");
-                }
-            }
-        } else {
-            ui.set_status("".into());
-        }
+        self.media_shown(preview);
         self.frame();
         self.update_view();
         self.schedule();
@@ -285,6 +274,21 @@ impl App {
             }
         } else {
             self.ensure_detail();
+        }
+    }
+    /// Clears the loading status once media is on screen. The deletion notice
+    /// survives a preview and is shown once more for the image or video that
+    /// replaced the deleted file, never after that.
+    pub(super) fn media_shown(&mut self, preview: bool) {
+        if self.undo_notice {
+            if !preview {
+                self.undo_notice = false;
+                if self.undo.is_some() {
+                    self.status("Moved to the Recycle Bin. Ctrl+Z restores it.");
+                }
+            }
+        } else if let Some(ui) = self.ui.upgrade() {
+            ui.set_status("".into());
         }
     }
     pub(super) fn physical_viewport(&self) -> Option<(u32, u32)> {
