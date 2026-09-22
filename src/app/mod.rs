@@ -70,6 +70,10 @@ struct RecycleUndo {
 }
 struct WindowDrag {
     grab: Option<(f64, f64)>,
+    /// Set when the drag un-maximizes the window: the cursor's horizontal
+    /// fraction of the maximized width and its client y, so the restored
+    /// window can be placed under the pointer.
+    restore: Option<(f64, f64)>,
 }
 struct App {
     ui: slint::Weak<ViewerWindow>,

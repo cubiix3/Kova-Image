@@ -31,6 +31,7 @@ impl App {
     pub(super) fn begin_window_drag(&mut self) {
         self.window_drag = Some(WindowDrag {
             grab: self.cursor_physical,
+            restore: None,
         });
     }
     fn move_window(&mut self, position: (f64, f64)) {
@@ -45,9 +46,39 @@ impl App {
             .with_winit_window(|window| window.is_maximized())
             .unwrap_or(false)
         {
-            ui.window()
-                .with_winit_window(|window| window.set_maximized(false));
+            if drag.restore.is_none() {
+                ui.window().with_winit_window(|window| {
+                    let width = f64::from(window.inner_size().width).max(1.);
+                    drag.restore = Some(((position.0 / width).clamp(0., 1.), position.1));
+                    window.set_maximized(false);
+                });
+            }
             drag.grab = None;
+            return;
+        }
+        if let Some((fraction, y)) = drag.restore.take() {
+            // Restoring applies the saved normal bounds, which can be anywhere
+            // on screen. Move them so the pointer keeps its relative spot.
+            ui.window().with_winit_window(|window| {
+                let (Ok(inner), Ok(outer)) = (window.inner_position(), window.outer_position())
+                else {
+                    return;
+                };
+                let size = window.inner_size();
+                let screen = (
+                    f64::from(inner.x) + position.0,
+                    f64::from(inner.y) + position.1,
+                );
+                let grab = (
+                    fraction * f64::from(size.width),
+                    y.clamp(0., f64::from(size.height.saturating_sub(1))),
+                );
+                window.set_outer_position(PhysicalPosition::new(
+                    (screen.0 - grab.0).round() as i32 - (inner.x - outer.x),
+                    (screen.1 - grab.1).round() as i32 - (inner.y - outer.y),
+                ));
+                drag.grab = Some(grab);
+            });
             return;
         }
         let grab = match drag.grab {
