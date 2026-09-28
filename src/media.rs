@@ -87,15 +87,22 @@ pub fn open_video(path: &Path, ticket: &Ticket) -> Result<VideoSource, Error> {
         use std::os::windows::fs::OpenOptionsExt;
         options.share_mode(1).custom_flags(0x00200000); // read sharing only; open reparse point itself
     }
-    let mut file = options.open(path)?;
+    let file = options.open(path)?;
     let metadata = file.metadata()?;
     #[cfg(windows)]
-    {
+    let (mut file, metadata) = {
         use std::os::windows::fs::MetadataExt;
         if crate::windows_integration::blocks_reparse(&file, metadata.file_attributes()) {
             return Err(Error::Io("Video reparse points are not supported".into()));
         }
-    }
+        // A cloud placeholder is read through an ordinary handle.
+        let file =
+            crate::windows_integration::reopen_placeholder(file, path, metadata.file_attributes())?;
+        let metadata = file.metadata()?;
+        (file, metadata)
+    };
+    #[cfg(not(windows))]
+    let mut file = file;
     if !metadata.is_file() || metadata.len() > MAX_VIDEO_BYTES {
         return Err(Error::Io(
             "Video must be a regular local file no larger than 32 GiB".into(),

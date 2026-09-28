@@ -17,7 +17,7 @@ release acceptance claim.
   release compilation and portable packaging.
 - A separate cargo-audit workflow leaves maintenance warnings visible.
 - Local formatting, check, strict Clippy, tests and release compilation pass.
-  The current suite contains **59 passing tests**, with no ignored tests.
+  The current suite contains **60 passing tests**, with no ignored tests.
 - The dependency graph is populated; GitHub's SBOM endpoint returns packages.
 - Dependabot alerts/security updates, secret scanning, push protection and private
   vulnerability reporting were enabled and read back from GitHub's API.
@@ -168,7 +168,7 @@ optimized release build passed at that time. This refinement adds no runtime dep
 
 ## Large photos, sorting, slideshow and damage tests, 2026-09-28
 
-Local formatting, all-target check, strict Clippy and all 59 Cargo tests pass on
+Local formatting, all-target check, strict Clippy and all 60 Cargo tests pass on
 Windows 11 Pro (build 26200), Rust 1.95.0.
 
 New automated coverage: JPEG orientation, fitting and colour at several target

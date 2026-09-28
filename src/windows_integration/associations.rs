@@ -42,6 +42,40 @@ pub fn blocks_reparse(file: &std::fs::File, attributes: u32) -> bool {
     };
     queried.is_err() || !crate::security::cloud_reparse_tag(info.ReparseTag)
 }
+/// Volume and file index of an open handle: what makes two handles the same file.
+fn file_identity(file: &std::fs::File) -> Option<(u32, u64)> {
+    use std::os::windows::io::AsRawHandle;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: the handle is owned by `file` for the call and `info` is a plain
+    // out structure of the size the API expects.
+    unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info) }.ok()?;
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Some((info.dwVolumeSerialNumber, index))
+}
+/// A file that is a reparse point (which `blocks_reparse` let through as a cloud
+/// placeholder) was opened without reparse processing, and reads through that
+/// handle may not make its sync provider supply the data. Open it again for
+/// normal reads, and accept the new handle only if it is the same file, so a
+/// path swapped for a link in between is refused. Other files pass unchanged.
+pub fn reopen_placeholder(
+    file: std::fs::File,
+    path: &Path,
+    attributes: u32,
+) -> Result<std::fs::File, Error> {
+    use std::os::windows::fs::OpenOptionsExt;
+    if attributes & FILE_ATTRIBUTE_REPARSE_POINT.0 == 0 {
+        return Ok(file);
+    }
+    let before = file_identity(&file);
+    let reopened = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1)
+        .open(path)?;
+    if before.is_none() || before != file_identity(&reopened) {
+        return Err(Error::Changed);
+    }
+    Ok(reopened)
+}
 /// Path-based variant for Shell actions. Opens the entry itself without
 /// following it and without requesting data access.
 pub fn path_blocks_reparse(path: &Path) -> bool {

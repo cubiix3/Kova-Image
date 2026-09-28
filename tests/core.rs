@@ -673,3 +673,25 @@ fn grayscale_jpeg_is_shrunk_before_it_is_widened() {
     assert!(top[0] == top[1] && top[1] == top[2], "{top:?}");
     assert!(!fitted.alpha);
 }
+#[cfg(windows)]
+#[test]
+fn placeholder_reopen_keeps_the_file_and_refuses_a_different_one() {
+    use kova_image::windows_integration::reopen_placeholder;
+    use std::io::Read;
+    const REPARSE_POINT: u32 = 0x400;
+    let temp = Temp::new();
+    let a = temp.write("a.png", b"content of a");
+    let b = temp.write("b.png", b"content of b");
+    let open = |path: &std::path::Path| std::fs::File::open(path).unwrap();
+    // Without the reparse attribute the handle is returned untouched.
+    assert!(reopen_placeholder(open(&a), &b, 0).is_ok());
+    // With it, the path is opened again and must be the same file.
+    let mut same = reopen_placeholder(open(&a), &a, REPARSE_POINT).unwrap();
+    let mut text = String::new();
+    same.read_to_string(&mut text).unwrap();
+    assert_eq!(text, "content of a");
+    assert_eq!(
+        reopen_placeholder(open(&a), &b, REPARSE_POINT).map(|_| ()),
+        Err(Error::Changed)
+    );
+}
