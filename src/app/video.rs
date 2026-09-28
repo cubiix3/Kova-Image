@@ -125,7 +125,13 @@ impl App {
                 ui.set_video_progress((state.position / state.duration) as f32);
                 ui.set_paused(self.paused || state.ended);
                 let first = self.video_state.is_none();
+                let was_ended = self.video_state.as_ref().is_some_and(|s| s.ended);
+                let ended = state.ended;
                 self.video_state = Some(state);
+                if ended && !was_ended {
+                    // A slideshow waits for a video to finish, then moves on.
+                    self.arm_slideshow();
+                }
                 if let Some(frame) = update.frame {
                     let was_loading = ui.get_loading();
                     ui.set_picture(slint::Image::from_rgba8(frame));
@@ -184,6 +190,7 @@ impl App {
             ui.set_error_detail(error.to_string().into());
             ui.set_status("".into());
         }
+        self.slideshow_after_error();
     }
     pub(super) fn seek_video(&mut self, value: f64, fraction: bool) {
         if let (Some(player), Some(state)) = (&self.video, &self.video_state) {

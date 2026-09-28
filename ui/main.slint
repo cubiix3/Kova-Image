@@ -49,12 +49,18 @@ export component ViewerWindow inherits Window {
     in property <bool> high-contrast: false;
     in property <bool> reduce-motion: false;
     in-out property <bool> pixelated;
+    in-out property <bool> transparency-grid: true;
+    in property <bool> transparent;
     in-out property <bool> show-more;
     in-out property <bool> show-info;
     in-out property <bool> show-settings;
     in-out property <bool> autoplay: true;
     in-out property <bool> looping: true;
     in-out property <bool> natural-sort: true;
+    in property <string> sort-by: "name";
+    in-out property <bool> sort-descending: false;
+    in-out property <bool> wrap-around: false;
+    in property <int> slideshow-seconds: 5;
     in-out property <bool> auto-hide: true;
     in-out property <bool> wheel-zoom: true;
     out property <float> viewport-width: canvas.width / 1px;
@@ -111,6 +117,16 @@ export component ViewerWindow inherits Window {
             enabled: !root.modal && !root.show-more;
             focus-on-tab-navigation: false;
             focus-gained(reason) => { Interaction.focused-control = 0; Interaction.hint = ""; }
+        }
+        if root.has-image && root.transparent && root.transparency-grid && !root.is-video: Image {
+            source: @image-url("../assets/checker.png");
+            x: (parent.width - self.width)/2 + root.pan-x * 1px;
+            y: (parent.height - self.height)/2 + root.pan-y * 1px;
+            width: root.display-width * 1px;
+            height: root.display-height * 1px;
+            horizontal-tiling: repeat;
+            vertical-tiling: repeat;
+            transform-rotation: root.rotation * 1deg;
         }
         if root.has-image: Image {
             source: root.picture;
@@ -257,7 +273,7 @@ export component ViewerWindow inherits Window {
     if root.show-more: Rectangle {
         TouchArea { clicked => { root.show-more = false; Interaction.hint = ""; } }
         Rectangle {
-            width: 306px; height: min(452px, root.height - Theme.header-height - root.bar-height - 16px);
+            width: 306px; height: min(524px, root.height - Theme.header-height - root.bar-height - 16px);
             x: bar.x + bar.width - self.width - 12px; y: bar.y - self.height - 8px;
             border-radius: 14px; background: Theme.surface; border-width: 1px; border-color: Theme.stroke;
             TouchArea { }
@@ -274,10 +290,12 @@ export component ViewerWindow inherits Window {
                         Rule { }
                         Tool { menu: true; label: root.is-video ? "Copy path" : "Copy image"; icon: Icons.copy; has-icon: true; shortcut: "Ctrl+C"; enabled: root.has-image && !root.loading; clicked => { root.command("copy"); root.show-more=false; } }
                         Tool { menu: true; label: "Copy path"; icon: Icons.path; has-icon: true; shortcut: "Ctrl+Shift+C"; enabled: root.has-image && !root.loading; clicked => { root.command("path"); root.show-more=false; } }
+                        Tool { menu: true; label: "Copy file"; icon: Icons.copy; has-icon: true; enabled: root.has-image && !root.loading; clicked => { root.command("copy-file"); root.show-more=false; } }
                         Tool { menu: true; label: "Show in Explorer"; icon: Icons.folder; has-icon: true; enabled: root.has-image && !root.loading; clicked => { root.command("reveal"); root.show-more=false; } }
                         Tool { menu: true; label: "Open with…"; icon: Icons.open; has-icon: true; enabled: root.has-image && !root.loading; clicked => { root.command("open-with"); root.show-more=false; } }
                         Tool { menu: true; label: "Move to Recycle Bin"; icon: Icons.delete; has-icon: true; shortcut: "Del"; danger: true; enabled: root.has-image && !root.loading; clicked => { root.command("delete"); root.show-more=false; } }
                         Rule { }
+                        Tool { menu: true; label: "Slideshow"; icon: Icons.play; has-icon: true; shortcut: "F5"; enabled: root.has-image && !root.loading; clicked => { root.command("slideshow"); root.show-more=false; } }
                         Tool { menu: true; label: "File information"; icon: Icons.info; has-icon: true; shortcut: "I"; enabled: root.has-image; clicked => { root.command("info"); root.show-more=false; } }
                         Tool { menu: true; label: "Settings"; icon: Icons.settings; has-icon: true; clicked => { root.command("settings"); root.show-more=false; } }
                     }
@@ -292,7 +310,7 @@ export component ViewerWindow inherits Window {
         background: #00000088;
         TouchArea { clicked => { root.show-info=false; root.show-settings=false; } }
         Rectangle {
-            width: min(492px, parent.width - 40px); height: min(root.show-settings ? 544px : 410px, parent.height - 32px);
+            width: min(492px, parent.width - 40px); height: min(root.show-settings ? 620px : 410px, parent.height - 32px);
             x: (parent.width - self.width)/2; y: (parent.height - self.height)/2;
             border-radius: 16px; background: Theme.surface; border-width: 1px; border-color: Theme.stroke;
             TouchArea { }
@@ -324,13 +342,29 @@ export component ViewerWindow inherits Window {
                             ToggleRow { label: "Honor animation loop count"; checked <=> root.looping; toggled(value) => { root.setting("looping",value); } }
                             ToggleRow { label: "Autoplay videos"; checked <=> root.video-autoplay; toggled(value) => { root.setting("video-autoplay",value); } }
                             ToggleRow { label: "Loop videos"; checked <=> root.video-loop; toggled(value) => { root.setting("video-loop",value); } }
-                            ToggleRow { label: "Natural filename sorting"; checked <=> root.natural-sort; toggled(value) => { root.setting("natural",value); } }
+                            ToggleRow { label: "Natural sorting (numbers by value, like Explorer)"; checked <=> root.natural-sort; toggled(value) => { root.setting("natural",value); } }
+                            HorizontalLayout { spacing: 6px;
+                                Text { text: "Sort files by"; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
+                                Tool { label: "Name"; checkable: true; active: root.sort-by == "name"; clicked => { root.setting("sort-name",true); } }
+                                Tool { label: "Date"; checkable: true; active: root.sort-by == "modified"; clicked => { root.setting("sort-date",true); } }
+                                Tool { label: "Size"; checkable: true; active: root.sort-by == "size"; clicked => { root.setting("sort-size",true); } }
+                            }
+                            ToggleRow { label: "Reverse order (newest, largest or Z first)"; checked <=> root.sort-descending; toggled(value) => { root.setting("descending",value); } }
+                            ToggleRow { label: "Wrap around at the first and last file"; checked <=> root.wrap-around; toggled(value) => { root.setting("wrap",value); } }
+                            HorizontalLayout { spacing: 6px;
+                                Text { text: "Slideshow interval (F5)"; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
+                                Tool { label: "3 s"; checkable: true; active: root.slideshow-seconds == 3; clicked => { root.setting("slide-3",true); } }
+                                Tool { label: "5 s"; checkable: true; active: root.slideshow-seconds == 5; clicked => { root.setting("slide-5",true); } }
+                                Tool { label: "10 s"; checkable: true; active: root.slideshow-seconds == 10; clicked => { root.setting("slide-10",true); } }
+                                Tool { label: "30 s"; checkable: true; active: root.slideshow-seconds == 30; clicked => { root.setting("slide-30",true); } }
+                            }
                             ToggleRow { label: "Auto-hide viewing controls"; checked <=> root.auto-hide; toggled(value) => { root.setting("hide",value); } }
                             ToggleRow { label: "Mouse wheel zooms (off: navigate)"; checked <=> root.wheel-zoom; toggled(value) => { root.setting("wheel",value); } }
                             Rule { }
                             Text { text: "APPEARANCE"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
                             ToggleRow { label: "Sharp pixels at high zoom"; checked <=> root.pixelated; toggled(value) => { root.setting("pixels",value); } }
                             ToggleRow { label: "Light image background"; checked: root.light-background; toggled(value) => { root.setting("background",value); } }
+                            ToggleRow { label: "Grid behind transparent images"; checked <=> root.transparency-grid; toggled(value) => { root.setting("grid",value); } }
                             HorizontalLayout { spacing: 6px;
                                 Text { text: "Default fit"; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
                                 Tool { label: "Window"; checkable: true; active: root.default-fit == "window"; clicked => { root.setting("fit-window",true); } }

@@ -174,7 +174,11 @@ impl App {
                     if !event.repeat
                         || !matches!(
                             action,
-                            Action::Delete | Action::Open | Action::CopyImage | Action::CopyPath
+                            Action::Delete
+                                | Action::Open
+                                | Action::CopyImage
+                                | Action::CopyPath
+                                | Action::CopyFile
                         )
                     {
                         self.action(action);

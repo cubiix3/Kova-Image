@@ -31,8 +31,8 @@ impl App {
             SeekForward => self.seek_video(5., false),
             Previous | Next | First | Last => {
                 let path = match action {
-                    Previous => self.nav.step(-1),
-                    Next => self.nav.step(1),
+                    Previous => self.nav.step(-1, self.settings.wrap),
+                    Next => self.nav.step(1, self.settings.wrap),
                     First => self.nav.first(),
                     _ => self.nav.last(),
                 };
@@ -96,6 +96,10 @@ impl App {
                     ui.set_show_more(false);
                     ui.set_show_info(false);
                     ui.set_show_settings(false);
+                    return;
+                }
+                if self.slideshow {
+                    self.stop_slideshow(true);
                     return;
                 }
                 ui.set_show_more(false);
@@ -165,10 +169,10 @@ impl App {
                     self.send_shell(CopyImage, None);
                 }
             }
+            Slideshow => self.toggle_slideshow(),
             Undo => self.send_shell(Undo, None),
-            Open | CopyImage | CopyPath | Delete | Reveal | OpenWith | Register | DefaultApps => {
-                self.send_shell(action, None)
-            }
+            Open | CopyImage | CopyPath | CopyFile | Delete | Reveal | OpenWith | Register
+            | DefaultApps => self.send_shell(action, None),
         }
     }
 }

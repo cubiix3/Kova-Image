@@ -3,7 +3,7 @@ use kova_image::{
     animation::{Loops, Playback},
     decoder::Decoded,
     error::Error,
-    folder_navigation::Navigation,
+    folder_navigation::{Navigation, SortBy},
     image_loader::{Event, Loader},
     input::{self, Action},
     settings::Settings,
@@ -105,6 +105,8 @@ struct App {
     hide_chrome: Timer,
     notice: Timer,
     feedback_timer: Timer,
+    slideshow: bool,
+    slideshow_timer: Timer,
     modifiers: ModifiersState,
     cursor: (f32, f32),
     cursor_physical: Option<(f64, f64)>,
@@ -239,6 +241,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         hide_chrome: Timer::default(),
         notice: Timer::default(),
         feedback_timer: Timer::default(),
+        slideshow: false,
+        slideshow_timer: Timer::default(),
         modifiers: ModifiersState::empty(),
         cursor: (0., 0.),
         cursor_physical: None,
@@ -316,6 +320,7 @@ mod events;
 mod preferences;
 mod presentation;
 mod shell;
+mod slideshow;
 mod video;
 use shell::shell_job;
 
@@ -383,6 +388,8 @@ impl App {
         self.pending_scan = scan;
         self.animation.stop();
         self.feedback_timer.stop();
+        // Opening anything restarts the slideshow interval once it is shown.
+        self.slideshow_timer.stop();
         self.pending_video = None;
         if let Some(player) = &self.video {
             player.stop();
@@ -404,7 +411,7 @@ impl App {
             path,
             self.nav.neighbors(),
             scan,
-            self.settings.natural_sort,
+            self.settings.order(),
             self.open_target(),
         );
         if let Some(ui) = self.ui.upgrade() {
@@ -485,6 +492,7 @@ impl App {
                                 .into(),
                         );
                         self.status(error.to_string());
+                        self.slideshow_after_error();
                     }
                 }
             }
