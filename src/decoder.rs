@@ -425,15 +425,32 @@ fn jpeg_still(
     } else {
         (fit_w, fit_h)
     };
-    let mut rgb = image::DynamicImage::from_decoder(decoder)?.into_rgb8();
-    if rgb.dimensions() != (width, height) {
+    let decoded = image::DynamicImage::from_decoder(decoder)?;
+    if (decoded.width(), decoded.height()) != (width, height) {
         return Err(Error::Dimensions);
     }
-    if (raw_w, raw_h) != (width, height) {
-        let small = crate::resample::shrink::<3>(rgb.into_raw(), (width, height), (raw_w, raw_h))?;
-        rgb = image::RgbImage::from_raw(raw_w, raw_h, small).ok_or(Error::Dimensions)?;
-    }
-    let mut image = image::DynamicImage::ImageRgb8(rgb);
+    // Shrink in the layout the codec produced and widen afterwards, so a large
+    // grayscale photo is not first tripled into RGB.
+    let mut image = if (raw_w, raw_h) == (width, height) {
+        decoded
+    } else {
+        use crate::resample::shrink;
+        let (from, to) = ((width, height), (raw_w, raw_h));
+        match decoded {
+            image::DynamicImage::ImageLuma8(gray) => {
+                let small = shrink::<1>(gray.into_raw(), from, to)?;
+                image::DynamicImage::ImageLuma8(
+                    image::GrayImage::from_raw(raw_w, raw_h, small).ok_or(Error::Dimensions)?,
+                )
+            }
+            other => {
+                let small = shrink::<3>(other.into_rgb8().into_raw(), from, to)?;
+                image::DynamicImage::ImageRgb8(
+                    image::RgbImage::from_raw(raw_w, raw_h, small).ok_or(Error::Dimensions)?,
+                )
+            }
+        }
+    };
     image.apply_orientation(orientation);
     let mut rgba = image.into_rgba8().into_raw();
     to_srgb(&mut rgba, srgb);
