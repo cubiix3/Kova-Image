@@ -72,6 +72,21 @@ impl Drop for Apartment {
     }
 }
 
+/// NUL-terminated UTF-16 form of a file name for `compare_logical`.
+pub fn logical_key(name: &std::ffi::OsStr) -> Vec<u16> {
+    name.encode_wide()
+        .filter(|unit| *unit != 0)
+        .chain(Some(0))
+        .collect()
+}
+/// The Shell's own filename order, the one Explorer sorts by: case-insensitive,
+/// numbers by value, accented letters beside their base letter.
+pub fn compare_logical(left: &[u16], right: &[u16]) -> std::cmp::Ordering {
+    debug_assert!(left.last() == Some(&0) && right.last() == Some(&0));
+    // SAFETY: `logical_key` terminates both slices, and they outlive the call.
+    unsafe { StrCmpLogicalW(PCWSTR(left.as_ptr()), PCWSTR(right.as_ptr())) }.cmp(&0)
+}
+
 pub fn open_image(owner: isize) -> Result<Option<PathBuf>, Error> {
     // SAFETY: COM apartment is established by the worker. Filter strings are
     // static, the dialog owns its result, and the allocated path is freed once.
@@ -153,6 +168,19 @@ pub fn copy_path(owner: isize, path: &Path) -> Result<(), Error> {
     let utf16 = wide(path)?;
     let bytes: Vec<u8> = utf16.iter().flat_map(|v| v.to_le_bytes()).collect();
     clipboard_bytes(owner, 13, &bytes) // CF_UNICODETEXT
+}
+/// Puts the file itself on the clipboard (CF_HDROP), so it can be pasted into
+/// Explorer, a mail or a chat as an attachment.
+pub fn copy_file(owner: isize, path: &Path) -> Result<(), Error> {
+    let utf16 = wide(path)?;
+    let mut bytes = Vec::with_capacity(22 + utf16.len() * 2);
+    bytes.extend_from_slice(&20u32.to_le_bytes()); // DROPFILES.pFiles
+    bytes.extend_from_slice(&[0; 8]); // pt
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // fNC
+    bytes.extend_from_slice(&1u32.to_le_bytes()); // fWide
+    bytes.extend(utf16.iter().flat_map(|v| v.to_le_bytes()));
+    bytes.extend_from_slice(&[0, 0]); // end of the file list
+    clipboard_bytes(owner, 15, &bytes) // CF_HDROP
 }
 pub fn copy_image(owner: isize, width: u32, height: u32, rgba: &[u8]) -> Result<(), Error> {
     let len = security::rgba_bytes(width, height)?;
@@ -238,7 +266,8 @@ pub fn desktop() -> Desktop {
 pub fn recycle(owner: isize, path: &Path, stamp: &Stamp) -> Result<Option<PathBuf>, Error> {
     use std::os::windows::fs::MetadataExt;
     let meta = std::fs::symlink_metadata(path)?;
-    if !meta.is_file() || meta.file_attributes() & 0x400 != 0 {
+    if !meta.is_file() || (meta.file_attributes() & 0x400 != 0 && super::path_blocks_reparse(path))
+    {
         return Err(Error::Io("Only regular image files can be recycled".into()));
     }
     if &Stamp::from_metadata(&meta) != stamp {

@@ -92,7 +92,7 @@ pub fn open_video(path: &Path, ticket: &Ticket) -> Result<VideoSource, Error> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        if metadata.file_attributes() & 0x400 != 0 {
+        if crate::windows_integration::blocks_reparse(&file, metadata.file_attributes()) {
             return Err(Error::Io("Video reparse points are not supported".into()));
         }
     }

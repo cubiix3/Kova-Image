@@ -6,6 +6,7 @@ pub mod folder_navigation;
 pub mod image_loader;
 pub mod input;
 pub mod media;
+pub mod resample;
 pub mod security;
 pub mod settings;
 #[cfg(windows)]

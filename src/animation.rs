@@ -4,9 +4,15 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Loops(pub Option<u32>);
 
+/// Frames that ask for 10 ms or less are shown for 100 ms, as browsers do.
+/// Encoders write 0 or 1 centisecond for "as fast as possible", and playing
+/// those literally runs the animation about ten times too fast.
 pub fn frame_delay(numerator_ms: u32, denominator: u32) -> Duration {
     let micros = u64::from(numerator_ms).saturating_mul(1000) / u64::from(denominator.max(1));
-    Duration::from_micros(micros.clamp(10_000, 60_000_000))
+    if micros <= 10_000 {
+        return Duration::from_millis(100);
+    }
+    Duration::from_micros(micros.min(60_000_000))
 }
 
 #[derive(Default, Debug)]
@@ -38,7 +44,9 @@ mod tests {
     use super::*;
     #[test]
     fn timing_is_bounded_and_variable() {
-        assert_eq!(frame_delay(0, 0), Duration::from_millis(10));
+        assert_eq!(frame_delay(0, 0), Duration::from_millis(100));
+        assert_eq!(frame_delay(10, 1), Duration::from_millis(100));
+        assert_eq!(frame_delay(20, 1), Duration::from_millis(20));
         assert_eq!(frame_delay(125, 2), Duration::from_micros(62500));
         assert_eq!(frame_delay(u32::MAX, 1), Duration::from_secs(60));
     }
