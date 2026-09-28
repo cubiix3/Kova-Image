@@ -380,8 +380,11 @@ fn decode(
         height = h;
         to_srgb(&mut frames[0].rgba, &srgb);
     }
-    // Every frame counts: disposal can clear pixels that the first frame covers.
-    let alpha = may_have_alpha && frames.iter().any(|f| has_alpha(&f.rgba));
+    // Every frame counts: disposal can clear pixels that the first frame covers,
+    // even in a file without an alpha channel, since frames are composited
+    // onto a transparent RGBA canvas. A still only needs a look if its source
+    // can carry alpha; animations are bounded by the frame budget.
+    let alpha = (may_have_alpha || frames.len() > 1) && frames.iter().any(|f| has_alpha(&f.rgba));
     Ok(Decoded {
         width,
         height,

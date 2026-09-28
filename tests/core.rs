@@ -601,3 +601,39 @@ fn transparency_in_a_later_frame_is_reported() {
             .alpha
     );
 }
+#[test]
+fn background_disposal_makes_an_rgb_animation_transparent() {
+    // No alpha channel in the file, but the second frame is smaller than the
+    // canvas and the first was disposed to the background: the composited
+    // canvas has transparent pixels the checkerboard must show through.
+    let temp = Temp::new();
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, 4, 4);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_animated(2, 0).unwrap();
+        let mut writer = encoder.write_header().unwrap();
+        writer.set_dispose_op(png::DisposeOp::Background).unwrap();
+        writer.write_image_data(&[200; 4 * 4 * 3]).unwrap();
+        writer.set_dispose_op(png::DisposeOp::None).unwrap();
+        writer.set_frame_dimension(2, 2).unwrap();
+        writer.set_frame_position(1, 1).unwrap();
+        writer.write_image_data(&[50; 2 * 2 * 3]).unwrap();
+    }
+    let path = temp.write("disposal.png", &bytes);
+    let image = decoder::load(&path, &Generation::default().next()).unwrap();
+    assert_eq!(image.frames.len(), 2);
+    assert!(image.alpha, "composited frames contain cleared pixels");
+    // A plain RGB still is never scanned and never reports transparency.
+    let mut rgb = Vec::new();
+    DynamicImage::ImageRgb8(image::RgbImage::new(4, 4))
+        .write_to(&mut Cursor::new(&mut rgb), ImageFormat::Png)
+        .unwrap();
+    let still = temp.write("still-rgb.png", &rgb);
+    assert!(
+        !decoder::load(&still, &Generation::default().next())
+            .unwrap()
+            .alpha
+    );
+}
