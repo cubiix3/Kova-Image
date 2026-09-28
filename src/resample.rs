@@ -1,7 +1,10 @@
 //! Downscaling of 8-bit interleaved images. Averaging whole blocks first keeps
 //! a large reduction cheap and free of aliasing; a two-tap bilinear pass then
-//! reaches the exact size. Every step reads and writes plain slices, so a huge
-//! photo needs only the source, one small intermediate and the result.
+//! reaches the exact size. Both stages write into the source buffer and
+//! truncate it, so a huge photo needs the source and a few small rows. The
+//! final `shrink_to_fit` asks the allocator to give the tail back; the Windows
+//! heap normally does that in place, and if it ever moved the block the peak
+//! would be the source plus the result, which is the bound the limits assume.
 use crate::error::Error;
 
 /// Reduces `source` to `target` (both `(width, height)`), which must not be

@@ -93,3 +93,8 @@ request (kept at 32 MP) 229 MiB. No 64 MP file was measured; its 192 MiB RGB
 buffer is the largest single allocation this path makes.
 A 50 MP grayscale JPEG, shrunk before it is widened, peaks at 60 MiB for a 4K
 target and 165 MiB for a full-size request.
+A 64 MP JPEG (8192 x 8192, EXIF orientation 6, the largest admitted size) peaks
+at 229 MiB for a full-size request and 214 MiB for a 4K target. The 192 MiB RGB
+buffer dominates. The resampler writes into it and truncates it; if an allocator
+moved that block instead of shrinking it in place, the transient would be the
+source plus the 96 MiB result (288 MiB), which is the worst case to plan for.
