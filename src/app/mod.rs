@@ -3,7 +3,7 @@ use kova_image::{
     animation::{Loops, Playback},
     decoder::Decoded,
     error::Error,
-    folder_navigation::{Navigation, SortBy},
+    folder_navigation::{self, Navigation, SortBy},
     image_loader::{Event, Loader},
     input::{self, Action},
     settings::Settings,
@@ -94,6 +94,10 @@ struct App {
     muted: bool,
     nav: Navigation,
     pending_scan: bool,
+    /// Order the current folder list was requested with.
+    scan_order: folder_navigation::Order,
+    /// A sort change made while a video played; the next open rescans.
+    pending_rescan: bool,
     view: View,
     settings: Settings,
     settings_ready: bool,
@@ -194,7 +198,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     app.view.reset(app.settings.fit);
                     app.sync_settings();
                     app.update_view();
-                    if let Some((path, source)) = app.pending_video.take() {
+                    // A file opened from the command line was requested before
+                    // the saved sort order was known.
+                    if !app.apply_saved_order()
+                        && let Some((path, source)) = app.pending_video.take()
+                    {
                         app.start_video(path, source);
                     }
                 })
@@ -230,6 +238,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         muted: cfg!(debug_assertions) && std::env::var_os("KOVA_TEST_MUTE").is_some(),
         nav: Navigation::default(),
         pending_scan: false,
+        scan_order: folder_navigation::Order::default(),
+        pending_rescan: false,
         view,
         settings,
         settings_ready: false,
@@ -359,6 +369,7 @@ impl App {
         }
     }
     fn open(&mut self, path: PathBuf, scan: bool) {
+        let scan = std::mem::take(&mut self.pending_rescan) || scan;
         if scan {
             self.nav = Navigation::default();
         }
@@ -386,6 +397,9 @@ impl App {
             self.undo_notice = false;
         }
         self.pending_scan = scan;
+        if scan {
+            self.scan_order = self.settings.order();
+        }
         self.animation.stop();
         self.feedback_timer.stop();
         // Opening anything restarts the slideshow interval once it is shown.

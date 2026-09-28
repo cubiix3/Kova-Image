@@ -69,7 +69,10 @@ impl App {
         self.displayed = Some(path.clone());
         self.video_stamp = Some(source.stamp.clone());
         self.video_kind = Some(source.kind);
-        self.paused = !self.settings.video_autoplay;
+        // A slideshow plays every video once, whatever the saved settings say.
+        let autoplay = self.settings.video_autoplay || self.slideshow;
+        let looping = self.settings.video_loop && !self.slideshow;
+        self.paused = !autoplay;
         self.view.reset(Fit::Window);
         if let Some(ui) = self.ui.upgrade() {
             ui.set_muted(self.muted);
@@ -94,8 +97,8 @@ impl App {
             player.open(
                 self.id,
                 source,
-                self.settings.video_autoplay,
-                self.settings.video_loop,
+                autoplay,
+                looping,
                 self.presentation_viewport(),
             );
         }

@@ -130,7 +130,9 @@ impl Loader {
                                 });
                             }
                         });
-                        if matches!(outcome.0, Err(Error::Unsupported))
+                        // The image decoders refuse files over 128 MiB before they
+                        // look at the format, so a large video reports TooLarge.
+                        if matches!(outcome.0, Err(Error::Unsupported | Error::TooLarge))
                             && ticket.is_current()
                             && crate::media::probe(&path).ok().flatten().is_some()
                         {

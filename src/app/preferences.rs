@@ -41,7 +41,7 @@ impl App {
             "video-loop" => {
                 self.settings.video_loop = value;
                 if let Some(p) = &self.video {
-                    p.looping(value);
+                    p.looping(value && !self.slideshow);
                 }
             }
             "autoplay" => self.settings.autoplay = value,

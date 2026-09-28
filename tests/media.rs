@@ -163,6 +163,19 @@ fn loader_recognises_video_by_content_and_preloads_after_a_pause() {
     let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(matches!(event, Event::Video { id: got, result: Ok(_), .. } if got == id));
 
+    // A renamed video above the image size limit is still a video.
+    let big = movie(&atom(b"url ", &[0, 0, 0, 1]));
+    let path = dir.write("big-renamed.dat", &big);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(kova_image::security::MAX_FILE_BYTES + 1024)
+        .unwrap();
+    let id = loader.request(path, vec![], false, Default::default(), Target::full());
+    let event = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(matches!(event, Event::Video { id: got, .. } if got == id));
+
     // An image whose neighbour is decoded once the user pauses on it.
     let mut png = Vec::new();
     image::DynamicImage::ImageRgba8(image::RgbaImage::new(8, 8))

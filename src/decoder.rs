@@ -98,7 +98,7 @@ pub fn fitted_size(src_w: u32, src_h: u32, target: Target) -> (u32, u32) {
     if capped {
         scale = scale.min((security::MAX_PIXELS as f64 / pixels).sqrt());
     }
-    if scale >= 0.999 {
+    if scale >= 0.999 && !capped {
         return (src_w, src_h);
     }
     // Rounding down under the cap keeps the product at or below MAX_PIXELS.
@@ -792,6 +792,15 @@ mod tests {
         assert!(capped.serves(Target::full()));
         // A source under the cap is still never touched by a full request.
         assert_eq!(fitted_size(6000, 4000, Target::full()), (6000, 4000));
+        // Just over the cap the scale is barely below 1 and must still apply.
+        for (w, h) in [(8193, 4096), (4097, 8192), (32768, 1025)] {
+            let (fw, fh) = fitted_size(w, h, Target::full());
+            assert!(
+                u64::from(fw) * u64::from(fh) <= security::MAX_PIXELS,
+                "{w}x{h}"
+            );
+            assert!(fw <= w && fh <= h);
+        }
     }
     #[test]
     fn alpha_is_found_in_any_channel_position() {
