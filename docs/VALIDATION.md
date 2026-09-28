@@ -17,7 +17,7 @@ release acceptance claim.
   release compilation and portable packaging.
 - A separate cargo-audit workflow leaves maintenance warnings visible.
 - Local formatting, check, strict Clippy, tests and release compilation pass.
-  The current suite contains **33 passing tests**, with no ignored tests.
+  The current suite contains **55 passing tests**, with no ignored tests.
 - The dependency graph is populated; GitHub's SBOM endpoint returns packages.
 - Dependabot alerts/security updates, secret scanning, push protection and private
   vulnerability reporting were enabled and read back from GitHub's API.
@@ -163,5 +163,36 @@ preferences on each run. GPU visual captures receive a second render; timed
 wake assertions sample once because saving large fullscreen PNGs can exceed
 the inactivity timeout. Captures are generated test content, not desktop images.
 
-Local formatting, all-target check, strict Clippy, all 29 Cargo tests and the
-optimized release build pass. This refinement adds no runtime dependencies.
+Local formatting, all-target check, strict Clippy, all Cargo tests and the
+optimized release build passed at that time. This refinement adds no runtime dependencies.
+
+## Large photos, sorting, slideshow and damage tests, 2026-09-28
+
+Local formatting, all-target check, strict Clippy and all 55 Cargo tests pass on
+Windows 11 Pro (build 26200), Rust 1.95.0.
+
+New automated coverage: JPEG orientation, fitting and colour at several target
+sizes; the 64 MP JPEG and 32 MP retained-bitmap limits; the resampler against the
+`image` crate's Triangle filter; Explorer-order sorting with umlauts, date and
+size orders and wrap-around; settings round trips; cloud reparse tag
+classification; symlinks refused and plain files opened; content-detected video
+and neighbour preload after a pause; EXIF lens and focal length; alpha detection.
+`tests/robustness.rs` damages every supported format (truncation, bit flips,
+spliced junk; 150 rounds per format at two target sizes) plus a hostile MP4 box
+tree, and requires no contained decoder panic, no hang and no crash. It is a
+deterministic regression net, not coverage-guided fuzzing.
+
+The GUI smoke harness passes on both renderers for the default scenario and for
+the empty, missing, corrupted, long-name, video and pinned states. It found one
+real defect: the sharper decode that follows a zoom re-showed hidden controls.
+That is fixed, and `--state=chrome` then passed three of three runs on the
+default renderer. On the software renderer `--state=chrome` passed six of ten
+runs; each failure was a "controls stay visible for 2.5 s while focus or a held
+pointer is active" assertion at a different step. The harness documents that
+real pointer movement or focus changes invalidate these inactivity timings, and
+I did not attribute the failures to a code path.
+
+Not verified: cloud placeholders (no sync provider was available; only the tag
+classification and symlink refusal are tested), Narrator, physical high-contrast
+and multi-monitor DPI, clean-machine installation, and code signing. Photos were
+synthetic JPEGs; real 50 MP photo folders are still unmeasured.

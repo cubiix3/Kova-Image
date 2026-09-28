@@ -29,7 +29,11 @@ flowchart LR
 The foreground request increments a shared generation and replaces pending
 work. Cancellable reads and per-frame checks stop old work where possible.
 Only the matching generation can update the view. Preload ordering is next,
-then previous, with no additional speculative radius. A codec already executing
+then previous, with no additional speculative radius. The worker waits 150 ms
+for a newer request before it starts a preload, because a codec cannot be
+interrupted once its bytes are read and a preload begun between two key presses
+would delay the picture that matters. Content decides whether a file is a video
+only after the image decoders decline it, which saves an open per picture. A codec already executing
 inside one call can delay the next request; there is no thread kill or unsafe
 cancellation. One worker bounds decode concurrency and peak overlap.
 If display-size refinement replaces an initial request before its folder scan
@@ -48,13 +52,22 @@ Animation storage is bounded. The first composited frame is delivered as soon
 as it is fitted, and later frames append while that generation is still current.
 A one-frame file is not announced twice.
 
+Shrinking is done by `resample`: whole-number block averaging first, then a
+two-tap bilinear pass, so a large reduction stays cheap and no full-size
+intermediate exists. A JPEG is shrunk from its RGB buffer, then oriented and
+widened to RGBA at display size.
+
 The renderer uploads one current RGBA frame to Slint. Cache entries and the app
 share an Arc of decoded frames. Renderer copies and textures are accounted for
 as separate costs, not hidden inside the cache budget. Transform properties
 handle zoom, rotation and flips without rewriting source pixels.
 
 Folder enumeration reads names and file types only. It never decodes every file,
-extracts EXIF from the directory or generates thumbnails. Natural numeric runs
+extracts EXIF from the directory or generates thumbnails. Ordering by date or
+size uses the metadata that directory enumeration already returns. The default
+name order is the Shell's own logical comparison (`StrCmpLogicalW`), so the
+sequence matches Explorer; it falls back to the portable comparison if the
+standard sort ever rejects the Shell's order. Natural numeric runs
 are compared by significant digit count and lexical value, avoiding integer
 parsing/overflow. Navigation clamps at folder ends.
 

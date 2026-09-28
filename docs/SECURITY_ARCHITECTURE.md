@@ -6,18 +6,18 @@
 | --- | --- |
 | Compressed image file | 128 MiB |
 | Width or height | 32,768 pixels |
-| Pixel count | 33,554,432 pixels |
+| Pixel count | 33,554,432 pixels; JPEG up to 67,108,864 (3 bytes per pixel, shrunk before widening to RGBA). No retained bitmap exceeds 33,554,432 pixels |
 | Decoder allocation allowance | 256 MiB, where the codec honors image-rs Limits |
 | Stored animation RGBA | 128 MiB, with space reserved for the next frame |
 | Animation frame count | Fewer than 2,000 frames |
 | Retained cache pixel data | 192 MiB / at most 32 entries |
 | Decode threads | 1 |
 | Pending decode requests | 1 (newest replaces previous) |
-| Pending image/folder results | 4 |
-| Speculative neighbors | Next two in the direction of travel; next and previous before the first move |
+| Pending loader results | One image, one video and one folder event, coalesced by request id |
+| Speculative neighbors | Next two in the direction of travel; next and previous before the first move; only after 150 ms without a new request |
 | Folder entries | Fewer than 100,000 supported entries |
 | Retained folder path names | 16 MiB |
-| Frame duration | 10 ms through 60 seconds |
+| Frame duration | 100 ms for requests of 10 ms or less, otherwise up to 60 seconds |
 | Settings read | 8 KiB |
 
 Zero dimensions and overflowing pixel/byte arithmetic are rejected. Dimensions
@@ -34,7 +34,13 @@ rendering are invoked. SVG and other unsupported data are rejected. Slint's
 SVG machinery renders the trusted built-in Kova logo only.
 
 On Windows, file handles deny concurrent writes/deletion, open reparse points
-without following them, and reject reparse-point image handles. Length and
+without following them, and reject reparse-point image handles. The exception is
+the cloud-files tag family (`IO_REPARSE_TAG_CLOUD` and its variants), which
+OneDrive, Dropbox and iCloud use for placeholders. It is read from the open
+handle, never from the path. Symlinks, junctions and every other tag stay
+refused. Reading a dehydrated placeholder makes its provider fetch the content;
+Kova Image itself opens no connection. This path has been exercised with symlinks
+only, not with a live sync provider. Length and
 timestamps are compared after decode and before cache reuse. File identity
 checks do not yet constitute a complete defense against deliberately constructed
 timestamp-preserving replacements or ancestor-directory reparse races. Strong
@@ -88,7 +94,7 @@ it would start a new URL load instead of retaining the admitted stream.
 MP4/MOV box traversal has depth, entry-count and length limits; media payloads
 are skipped by seeking. External data references, reference movies and compressed
 movie headers are rejected. UNC/mapped network video paths and leaf reparse
-points are rejected. Ancestor reparse races remain a limitation, as for images.
+points other than cloud placeholders are rejected. Ancestor reparse races remain a limitation, as for images.
 Locally registered Media Foundation plugins are disabled. Windows system codecs
 still parse hostile bytes in process; native faults are not caught by Rust.
 

@@ -34,7 +34,8 @@ this worker. Video frames and commands use bounded coalescing mailboxes.
 ## Limits and tradeoffs
 
 Only regular local drive files up to 32 GiB are admitted. UNC and mapped network
-video paths, leaf reparse points, playlists and URL sources are rejected. A
+video paths, leaf reparse points other than cloud-sync placeholders, playlists
+and URL sources are rejected. A
 read-only retained handle denies concurrent writes/deletion. Seeking reads this
 same handle through a COM stream, rather than reopening the filename.
 
