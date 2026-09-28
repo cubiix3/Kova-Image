@@ -53,6 +53,7 @@ impl Target {
 pub struct PhotoInfo {
     pub taken: Option<String>,
     pub camera: Option<String>,
+    pub lens: Option<String>,
     pub exposure: Option<String>,
 }
 pub struct Decoded {
@@ -67,6 +68,9 @@ pub struct Decoded {
     pub loops: Loops,
     pub stamp: Stamp,
     pub photo: PhotoInfo,
+    /// True when the first frame has transparent pixels, so the view can
+    /// show a grid behind it.
+    pub alpha: bool,
 }
 impl Decoded {
     pub fn weight(&self) -> usize {
@@ -77,24 +81,33 @@ impl Decoded {
         self.width.saturating_add(1) >= w && self.height.saturating_add(1) >= h
     }
 }
+/// Size of the bitmap kept for `target`: never enlarged, and never more than
+/// `MAX_PIXELS` even for a full-size request, so a huge source is shrunk.
 pub fn fitted_size(src_w: u32, src_h: u32, target: Target) -> (u32, u32) {
-    if src_w == 0 || src_h == 0 || target.max_width == 0 || target.max_height == 0 {
+    if src_w == 0 || src_h == 0 {
         return (src_w, src_h);
     }
-    let scale = (f64::from(target.max_width) / f64::from(src_w))
-        .min(f64::from(target.max_height) / f64::from(src_h))
-        .min(1.0);
+    let mut scale = 1.0f64;
+    if target.max_width != 0 && target.max_height != 0 {
+        scale = (f64::from(target.max_width) / f64::from(src_w))
+            .min(f64::from(target.max_height) / f64::from(src_h))
+            .min(1.0);
+    }
+    let pixels = f64::from(src_w) * f64::from(src_h);
+    let capped = pixels > security::MAX_PIXELS as f64;
+    if capped {
+        scale = scale.min((security::MAX_PIXELS as f64 / pixels).sqrt());
+    }
     if scale >= 0.999 {
         return (src_w, src_h);
     }
-    (
-        (f64::from(src_w) * scale)
-            .round()
-            .clamp(1.0, f64::from(src_w)) as u32,
-        (f64::from(src_h) * scale)
-            .round()
-            .clamp(1.0, f64::from(src_h)) as u32,
-    )
+    // Rounding down under the cap keeps the product at or below MAX_PIXELS.
+    let dimension = |source: u32| {
+        let value = f64::from(source) * scale;
+        let value = if capped { value.floor() } else { value.round() };
+        value.clamp(1.0, f64::from(source)) as u32
+    };
+    (dimension(src_w), dimension(src_h))
 }
 
 pub fn detect(bytes: &[u8]) -> Result<ImageFormat, Error> {
@@ -177,7 +190,7 @@ fn decode(
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        if meta.file_attributes() & 0x400 != 0 {
+        if crate::windows_integration::blocks_reparse(&file, meta.file_attributes()) {
             return Err(Error::Io("Reparse-point images are not opened".into()));
         }
     }
@@ -206,10 +219,17 @@ fn decode(
     // the same locked file handle before construction of the actual decoder.
     let mut probe = reader.into_decoder()?;
     let (mut width, mut height) = probe.dimensions();
-    security::rgba_bytes(width, height)?;
+    // JPEG is shrunk from its 3-byte-per-pixel buffer, so it may be larger.
+    let max_pixels = if format == ImageFormat::Jpeg {
+        security::MAX_JPEG_PIXELS
+    } else {
+        security::MAX_PIXELS
+    };
+    security::rgba_bytes_within(width, height, max_pixels)?;
     if probe.total_bytes() > security::DECODE_BUDGET {
         return Err(Error::MemoryBudget);
     }
+    let may_have_alpha = probe.color_type().has_alpha();
     let orientation = probe
         .orientation()
         .unwrap_or(image::metadata::Orientation::NoTransforms);
@@ -225,6 +245,7 @@ fn decode(
     // Animations fit and colour-convert frames as they arrive; stills and
     // one-frame animations hold the full, unconverted canvas until below.
     let mut fitted = false;
+    let mut oriented = false;
     let mut frames = match format {
         ImageFormat::Gif => {
             // GIF stores *additional* repetitions; image's generic loop API does
@@ -318,7 +339,18 @@ fn decode(
         _ => {
             let mut reader = ImageReader::with_format(source, format);
             reader.limits(security::limits());
-            vec![still(reader.into_decoder()?)?]
+            let decoder = reader.into_decoder()?;
+            if format == ImageFormat::Jpeg {
+                // Shrunk, oriented and colour-converted in one pass over RGB.
+                let (frame, shown) =
+                    jpeg_still(decoder, (width, height), orientation, target, &srgb)?;
+                (width, height) = shown;
+                fitted = true;
+                oriented = true;
+                vec![frame]
+            } else {
+                vec![still(decoder)?]
+            }
         }
     };
     ticket.check()?;
@@ -326,7 +358,7 @@ fn decode(
         return Err(Error::Changed);
     }
     // Fitted results are real animations, which keep their stored orientation.
-    if frames.len() == 1 && orientation != image::metadata::Orientation::NoTransforms {
+    if !oriented && frames.len() == 1 && orientation != image::metadata::Orientation::NoTransforms {
         let rgba = std::mem::take(&mut frames[0].rgba);
         let mut image = image::DynamicImage::ImageRgba8(
             image::RgbaImage::from_raw(width, height, rgba).ok_or(Error::Dimensions)?,
@@ -348,6 +380,7 @@ fn decode(
         height = h;
         to_srgb(&mut frames[0].rgba, &srgb);
     }
+    let alpha = may_have_alpha && frames.first().is_some_and(|f| has_alpha(&f.rgba));
     Ok(Decoded {
         width,
         height,
@@ -358,7 +391,55 @@ fn decode(
         loops,
         stamp,
         photo,
+        alpha,
     })
+}
+/// Decodes a JPEG to RGB and shrinks it before widening to RGBA, so a large
+/// photo never exists as a full RGBA canvas. Orientation is applied to the small
+/// bitmap; the box is swapped first so the fit matches the rotated source.
+/// Returns the frame and the full oriented source size.
+fn jpeg_still(
+    decoder: impl ImageDecoder,
+    (width, height): (u32, u32),
+    orientation: image::metadata::Orientation,
+    target: Target,
+    srgb: &Srgb,
+) -> Result<(Frame, (u32, u32)), Error> {
+    use image::metadata::Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
+    let swaps = matches!(
+        orientation,
+        Rotate90 | Rotate90FlipH | Rotate270 | Rotate270FlipH
+    );
+    let source = if swaps {
+        (height, width)
+    } else {
+        (width, height)
+    };
+    let (fit_w, fit_h) = fitted_size(source.0, source.1, target);
+    let (raw_w, raw_h) = if swaps {
+        (fit_h, fit_w)
+    } else {
+        (fit_w, fit_h)
+    };
+    let mut rgb = image::DynamicImage::from_decoder(decoder)?.into_rgb8();
+    if rgb.dimensions() != (width, height) {
+        return Err(Error::Dimensions);
+    }
+    if (raw_w, raw_h) != (width, height) {
+        let small = crate::resample::shrink::<3>(rgb.into_raw(), (width, height), (raw_w, raw_h))?;
+        rgb = image::RgbImage::from_raw(raw_w, raw_h, small).ok_or(Error::Dimensions)?;
+    }
+    let mut image = image::DynamicImage::ImageRgb8(rgb);
+    image.apply_orientation(orientation);
+    let mut rgba = image.into_rgba8().into_raw();
+    to_srgb(&mut rgba, srgb);
+    Ok((
+        Frame {
+            rgba,
+            delay: Duration::from_secs(1),
+        },
+        source,
+    ))
 }
 fn still(decoder: impl ImageDecoder) -> Result<Frame, Error> {
     let image = image::DynamicImage::from_decoder(decoder)?.into_rgba8();
@@ -435,6 +516,9 @@ fn collect(
     }
     Ok((result, announced))
 }
+fn has_alpha(rgba: &[u8]) -> bool {
+    rgba.iter().skip(3).step_by(4).any(|a| *a != 255)
+}
 fn partial(
     frame: Frame,
     stored: (u32, u32),
@@ -445,6 +529,7 @@ fn partial(
     photo: &PhotoInfo,
 ) -> Decoded {
     Decoded {
+        alpha: has_alpha(&frame.rgba),
         width: stored.0,
         height: stored.1,
         source_width: source.0,
@@ -466,12 +551,10 @@ fn scale_rgba(
     if (w, h) == (width, height) {
         return Ok((rgba, width, height));
     }
-    let image = image::RgbaImage::from_raw(width, height, rgba).ok_or(Error::Dimensions)?;
-    // Triangle is the image crate's bilinear-class downscale. The codec has
-    // already produced the full canvas; only the retained bitmap shrinks.
-    let small = image::imageops::resize(&image, w, h, image::imageops::FilterType::Triangle);
-    let (w, h) = small.dimensions();
-    Ok((small.into_raw(), w, h))
+    // The codec has already produced the full canvas; only the retained
+    // bitmap shrinks.
+    let small = crate::resample::shrink::<4>(rgba, (width, height), (w, h))?;
+    Ok((small, w, h))
 }
 type Srgb = Option<std::sync::Arc<dyn moxcms::InPlaceTransformExecutor<u8> + Send + Sync>>;
 /// Built once per file, then applied to each frame.
@@ -531,10 +614,12 @@ fn photo_from_exif(bytes: Option<&[u8]>) -> PhotoInfo {
         (None, Some(model)) => Some(model),
         (None, None) => None,
     };
+    let lens = text(exif::Tag::LensModel);
     let exposure = [
         text(exif::Tag::ExposureTime).map(|value| format!("{value} s")),
         text(exif::Tag::FNumber).map(|value| format!("f/{value}")),
         text(exif::Tag::PhotographicSensitivity).map(|value| format!("ISO {value}")),
+        text(exif::Tag::FocalLength).map(|value| format!("{value} mm")),
     ]
     .into_iter()
     .flatten()
@@ -543,6 +628,7 @@ fn photo_from_exif(bytes: Option<&[u8]>) -> PhotoInfo {
     PhotoInfo {
         taken,
         camera,
+        lens,
         exposure: if exposure.is_empty() {
             None
         } else {
@@ -672,12 +758,82 @@ mod tests {
                 created: None,
             },
             photo: PhotoInfo::default(),
+            alpha: false,
         };
         assert!(image.serves(Target {
             max_width: 800,
             max_height: 600
         }));
         assert!(!image.serves(Target::full()));
+    }
+    #[test]
+    fn full_size_requests_are_capped_at_the_retained_pixel_limit() {
+        // 50 MP source: a full-size request keeps at most MAX_PIXELS.
+        let (w, h) = fitted_size(8192, 6144, Target::full());
+        assert!(u64::from(w) * u64::from(h) <= security::MAX_PIXELS);
+        assert!(w > 6000 && h > 4500, "{w}x{h}");
+        let capped = Decoded {
+            width: w,
+            height: h,
+            source_width: 8192,
+            source_height: 6144,
+            format: ImageFormat::Jpeg,
+            frames: Vec::new(),
+            loops: Loops(Some(1)),
+            stamp: Stamp {
+                bytes: 1,
+                modified: None,
+                created: None,
+            },
+            photo: PhotoInfo::default(),
+            alpha: false,
+        };
+        // The capped bitmap is the best a full-size request can get.
+        assert!(capped.serves(Target::full()));
+        // A source under the cap is still never touched by a full request.
+        assert_eq!(fitted_size(6000, 4000, Target::full()), (6000, 4000));
+    }
+    #[test]
+    fn alpha_is_found_in_any_channel_position() {
+        assert!(!has_alpha(&[1, 2, 3, 255, 4, 5, 6, 255]));
+        assert!(has_alpha(&[1, 2, 3, 255, 4, 5, 6, 254]));
+        // Colour bytes of 0 must not be mistaken for alpha.
+        assert!(!has_alpha(&[0, 0, 0, 255]));
+        assert!(!has_alpha(&[]));
+    }
+    #[test]
+    fn exif_lens_and_focal_length_come_from_the_exif_ifd() {
+        // IFD0: Model and a pointer to the Exif IFD holding lens and focal length.
+        let mut tiff = Vec::new();
+        tiff.extend_from_slice(b"II*\0");
+        tiff.extend_from_slice(&8u32.to_le_bytes());
+        tiff.extend_from_slice(&2u16.to_le_bytes());
+        tiff.extend_from_slice(&0x0110u16.to_le_bytes());
+        tiff.extend_from_slice(&2u16.to_le_bytes());
+        tiff.extend_from_slice(&4u32.to_le_bytes());
+        tiff.extend_from_slice(b"Cam\0");
+        tiff.extend_from_slice(&0x8769u16.to_le_bytes());
+        tiff.extend_from_slice(&4u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&38u32.to_le_bytes());
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(tiff.len(), 38);
+        tiff.extend_from_slice(&2u16.to_le_bytes());
+        tiff.extend_from_slice(&0x920au16.to_le_bytes());
+        tiff.extend_from_slice(&5u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&68u32.to_le_bytes());
+        tiff.extend_from_slice(&0xa434u16.to_le_bytes());
+        tiff.extend_from_slice(&2u16.to_le_bytes());
+        tiff.extend_from_slice(&4u32.to_le_bytes());
+        tiff.extend_from_slice(b"Lns\0");
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(tiff.len(), 68);
+        tiff.extend_from_slice(&35u32.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        let info = photo_from_exif(Some(&tiff));
+        assert_eq!(info.lens.as_deref(), Some("Lns"));
+        assert_eq!(info.exposure.as_deref(), Some("35 mm"));
     }
     #[test]
     fn exif_model_is_read_and_garbage_is_ignored() {

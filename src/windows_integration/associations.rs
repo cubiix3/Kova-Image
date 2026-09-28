@@ -19,6 +19,48 @@ fn wide(s: &std::ffi::OsStr) -> Result<Vec<u16>, Error> {
     result.push(0);
     Ok(result)
 }
+/// True when an open handle's reparse point must keep the file from being
+/// treated as a plain local file. Symlinks, junctions and unknown filters may
+/// redirect elsewhere and stay refused. Cloud sync placeholders (OneDrive,
+/// Dropbox, iCloud) are ordinary local files whose data the provider supplies
+/// on read, so they are allowed.
+pub fn blocks_reparse(file: &std::fs::File, attributes: u32) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    if attributes & FILE_ATTRIBUTE_REPARSE_POINT.0 == 0 {
+        return false;
+    }
+    let mut info = FILE_ATTRIBUTE_TAG_INFO::default();
+    // SAFETY: the handle is owned by `file` for the call and `info` matches the
+    // FileAttributeTagInfo layout with its exact size.
+    let queried = unsafe {
+        GetFileInformationByHandleEx(
+            HANDLE(file.as_raw_handle()),
+            FileAttributeTagInfo,
+            (&raw mut info).cast(),
+            std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+        )
+    };
+    queried.is_err() || !crate::security::cloud_reparse_tag(info.ReparseTag)
+}
+/// Path-based variant for Shell actions. Opens the entry itself without
+/// following it and without requesting data access.
+pub fn path_blocks_reparse(path: &Path) -> bool {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    const OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    let Ok(file) = std::fs::OpenOptions::new()
+        .access_mode(0)
+        .share_mode(7)
+        .custom_flags(OPEN_REPARSE_POINT | BACKUP_SEMANTICS)
+        .open(path)
+    else {
+        return true;
+    };
+    match file.metadata() {
+        Ok(meta) => blocks_reparse(&file, meta.file_attributes()),
+        Err(_) => true,
+    }
+}
 pub fn require_local_file(path: &Path) -> Result<(), Error> {
     use std::path::{Component, Prefix};
     let disk = match path.components().next() {
