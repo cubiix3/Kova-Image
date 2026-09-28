@@ -13,6 +13,8 @@ Generated fixtures contain no private images and are reproducible from source.
 .\scripts\runtime-measure.ps1 -Animation artifacts\fixtures\image3.gif -SecondsPerPhase 10
 ```
 
+`kova-bench --fit 1920x1080 <files>` decodes at the size a window of that many
+pixels needs, as the viewer does; without `--fit` it decodes at full size.
 `kova-bench` reports file-open + decode wall time, dimensions, frame count and
 retained RGBA bytes. It does not measure rendering or OS-cold reads.
 `--measure <output.json>` records process-main to the first completed render

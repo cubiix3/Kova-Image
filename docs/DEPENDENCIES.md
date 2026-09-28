@@ -36,6 +36,14 @@ These warnings are visible in audit output and are not ignored by configuration.
 Untrusted SVG is not passed to Slint. Track upstream migration and reassess
 before releases; absence of an advisory is not proof of safety.
 
+## Resampling
+
+No resampling crate was added. `src/resample.rs` averages whole blocks and then
+applies a bilinear pass. On the 24 MP test photo the display-size decode fell
+from about 195 ms to about 118 ms with this and the RGB-first JPEG path (see
+[MEASUREMENTS.md](MEASUREMENTS.md)); a SIMD crate such as `fast_image_resize`
+remains an option if real photo folders show resampling as the bottleneck.
+
 ## Format decisions
 
 AVIF remains deferred. image-rs `avif-native` resolves to dav1d-sys, which

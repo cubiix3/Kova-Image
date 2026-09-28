@@ -63,3 +63,25 @@ order were sorted with the original comparator and with cached folded names.
 The original sort took 282 ms; the cached-key sort took 75 ms. Both produced the
 same order. This measures sorting only, not directory enumeration or image load,
 and is not a claim about end-to-end navigation time.
+
+## Large photos and resampling, 2026-09-28
+
+Release build, Windows 11 Pro 10.0.26200, 13th Gen Intel Core i7-13700K, one
+pass of `kova-bench` per line unless several values are listed. The JPEGs are
+synthetic (smooth random noise, quality 90, 4:2:0), so their entropy decoding
+is not that of real photos; the PNG is the generated 6000 x 4000 fixture.
+
+| Case | Before | After |
+| --- | --- | --- |
+| 24 MP JPEG (6000 x 4000) at `--fit 1920x1080` | 192.2, 193.6, 199.6 ms | 117.1, 118.2, 121.1 ms |
+| 24 MP JPEG, full size | 100.8 ms | 103.0 ms |
+| 50 MP JPEG (8192 x 6144) at `--fit 3840x2160` | rejected, "dimensions exceed the safety limit" | 295.6 ms |
+| 50 MP JPEG, full-size request (kept at 32 MP: 6688 x 5016) | rejected | 310.8 ms |
+| 6000 x 4000 PNG at `--fit 1920x1080` | 282.0 ms (earlier run 261.0 ms) | 249.0 ms (later run 209.7 ms) |
+
+The gain comes from shrinking the JPEG while it is still RGB (no full RGBA
+canvas), averaging whole blocks before the final bilinear pass, and replacing
+the `image` crate's Triangle resize. Quality against Triangle on a synthetic
+test pattern stays within a mean difference of 3 levels (unit test). Sorting
+100,000 generated names with the Shell's logical comparison took 186 ms, against
+96 ms for plain text order; this measures the sort only.
