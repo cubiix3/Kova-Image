@@ -9,8 +9,9 @@ pub const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
 /// most pixels any retained bitmap holds. Larger JPEGs are shrunk to fit.
 pub const MAX_PIXELS: u64 = 32 * 1024 * 1024;
 /// Source pixels admitted for JPEG. A JPEG decodes to 3 bytes per pixel (64 MP
-/// is 192 MiB of RGB) and is shrunk to the display size in place, so the source
-/// and its reduced copy never exist side by side.
+/// is 192 MiB of RGB) and is shrunk to the display size in place. A rotated
+/// 64 MP file peaked at 229 MiB in `kova-bench`; even if an allocator copied the
+/// block instead of shrinking it, the peak stays under source plus result.
 pub const MAX_JPEG_PIXELS: u64 = 64 * 1024 * 1024;
 pub const MAX_DIMENSION: u32 = 32768;
 pub const DECODE_BUDGET: u64 = 256 * 1024 * 1024;

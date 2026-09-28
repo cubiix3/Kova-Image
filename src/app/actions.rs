@@ -178,6 +178,14 @@ impl App {
                     self.send_shell(CopyImage, None);
                 }
             }
+            // The list is stale after a sort change made during a video, and the
+            // replacement for a deleted file is picked from it. Rescan first.
+            Delete if self.pending_rescan && self.requested.is_some() => {
+                if let Some(path) = self.requested.clone() {
+                    self.open(path, true);
+                    self.deferred_nav = Some(Delete);
+                }
+            }
             Slideshow => self.toggle_slideshow(),
             Undo => self.send_shell(Undo, None),
             Open | CopyImage | CopyPath | CopyFile | Delete | Reveal | OpenWith | Register
