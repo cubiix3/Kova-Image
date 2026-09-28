@@ -695,3 +695,62 @@ fn placeholder_reopen_keeps_the_file_and_refuses_a_different_one() {
         Err(Error::Changed)
     );
 }
+#[test]
+fn a_ten_millisecond_delay_is_real_in_apng_and_webp_but_not_in_gif() {
+    let temp = Temp::new();
+    // APNG, two frames of 10 ms (delay 1/100 s).
+    let mut apng = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut apng, 2, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_animated(2, 0).unwrap();
+        encoder.set_frame_delay(1, 100).unwrap();
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[1; 8]).unwrap();
+        writer.write_image_data(&[2; 8]).unwrap();
+    }
+    let path = temp.write("fast.png", &apng);
+    let image = decoder::load(&path, &Generation::default().next()).unwrap();
+    assert_eq!(image.frames.len(), 2);
+    assert_eq!(image.frames[0].delay.as_millis(), 10);
+    // Animated WebP, two frames of 10 ms.
+    let mut riff = Vec::from(*b"WEBP");
+    riff.extend(chunk(b"VP8X", &[2, 0, 0, 0, 1, 0, 0, 0, 0, 0]));
+    riff.extend(chunk(b"ANIM", &[0, 0, 0, 0, 0, 0]));
+    for color in [[255, 0, 0, 255], [0, 0, 255, 255]] {
+        let still = DynamicImage::ImageRgba8(RgbaImage::from_pixel(2, 1, image::Rgba(color)));
+        let mut webp = Cursor::new(Vec::new());
+        still.write_to(&mut webp, ImageFormat::WebP).unwrap();
+        let mut frame = vec![0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 10, 0, 0, 2];
+        frame.extend_from_slice(&webp.into_inner()[12..]);
+        riff.extend(chunk(b"ANMF", &frame));
+    }
+    let mut webp = Vec::from(*b"RIFF");
+    webp.extend_from_slice(&(riff.len() as u32).to_le_bytes());
+    webp.extend(riff);
+    let path = temp.write("fast.webp", &webp);
+    let image = decoder::load(&path, &Generation::default().next()).unwrap();
+    assert_eq!(image.frames.len(), 2);
+    assert_eq!(image.frames[0].delay.as_millis(), 10);
+    // GIF, frames of 0 and 1 centisecond: shown for 100 ms like in browsers.
+    let mut gif_bytes = Vec::new();
+    {
+        let mut encoder =
+            gif::Encoder::new(&mut gif_bytes, 1, 1, &[0, 0, 0, 255, 255, 255]).unwrap();
+        for delay in [0u16, 1, 2] {
+            let frame = gif::Frame {
+                width: 1,
+                height: 1,
+                delay,
+                buffer: std::borrow::Cow::Borrowed(&[0]),
+                ..gif::Frame::default()
+            };
+            encoder.write_frame(&frame).unwrap();
+        }
+    }
+    let path = temp.write("fast.gif", &gif_bytes);
+    let image = decoder::load(&path, &Generation::default().next()).unwrap();
+    let millis: Vec<u128> = image.frames.iter().map(|f| f.delay.as_millis()).collect();
+    assert_eq!(millis, [100, 100, 20]);
+}

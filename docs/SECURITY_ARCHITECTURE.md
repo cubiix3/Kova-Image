@@ -17,7 +17,7 @@
 | Speculative neighbors | Next two in the direction of travel; next and previous before the first move; only after 150 ms without a new request |
 | Folder entries | Fewer than 100,000 supported entries |
 | Retained folder path names | 16 MiB |
-| Frame duration | 100 ms for requests of 10 ms or less, otherwise up to 60 seconds |
+| Frame duration | 10 ms through 60 seconds; GIF frames of 10 ms or less show for 100 ms |
 | Settings read | 8 KiB |
 
 Zero dimensions and overflowing pixel/byte arithmetic are rejected. Dimensions
