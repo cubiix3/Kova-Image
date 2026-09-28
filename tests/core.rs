@@ -4,7 +4,7 @@ use kova_image::{
     cache::Cache,
     decoder::{self, Stamp},
     error::Error,
-    folder_navigation,
+    folder_navigation::{self, Order},
     security::{self, Generation},
 };
 use std::{
@@ -118,12 +118,14 @@ fn unicode_and_long_paths() {
 fn empty_directory_and_unknown_files() {
     let temp = Temp::new();
     let ticket = Generation::default().next();
-    let files = folder_navigation::scan(&temp.0.join("missing.png"), &ticket, true).unwrap();
+    let files =
+        folder_navigation::scan(&temp.0.join("missing.png"), &ticket, Order::default()).unwrap();
     assert_eq!(files.len(), 1);
     temp.write("a.txt", b"x");
     temp.write("image10.PNG", &encoded(ImageFormat::Png));
     temp.write("image2.png", &encoded(ImageFormat::Png));
-    let files = folder_navigation::scan(&temp.0.join("image2.png"), &ticket, true).unwrap();
+    let files =
+        folder_navigation::scan(&temp.0.join("image2.png"), &ticket, Order::default()).unwrap();
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].file_name().unwrap(), "image2.png");
 }
@@ -334,7 +336,7 @@ fn cancelled_decode_and_folder_scan() {
         Err(Error::Cancelled)
     ));
     assert_eq!(
-        folder_navigation::scan(&path, &stale, true),
+        folder_navigation::scan(&path, &stale, Order::default()),
         Err(Error::Cancelled)
     );
 }
@@ -353,15 +355,27 @@ fn latest_worker_request_and_recovery() {
         temp.0.join("missing.png"),
         vec![],
         false,
-        true,
+        Order::default(),
         decoder::Target::full(),
     );
     let event = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
     assert!(matches!(event,Event::Image {id,result:Err(Error::NotFound),..} if id==missing));
     for _ in 0..100 {
-        loader.request(good.clone(), vec![], false, true, decoder::Target::full());
+        loader.request(
+            good.clone(),
+            vec![],
+            false,
+            Order::default(),
+            decoder::Target::full(),
+        );
     }
-    let latest = loader.request(good.clone(), vec![], true, true, decoder::Target::full());
+    let latest = loader.request(
+        good.clone(),
+        vec![],
+        true,
+        Order::default(),
+        decoder::Target::full(),
+    );
     loop {
         let event = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
         if let Event::Image {
@@ -470,4 +484,90 @@ fn rotated_single_frame_animation_fits_the_target_exactly() {
         );
         assert!(fitted.serves(target));
     }
+}
+
+/// A JPEG whose left half is red and right half blue, with EXIF orientation 6.
+fn oriented_jpeg(width: u32, height: u32) -> Vec<u8> {
+    use image::ImageEncoder;
+    let raw: Vec<u8> = (0..height)
+        .flat_map(|_| {
+            (0..width).flat_map(move |x| {
+                if x < width / 2 {
+                    [230, 20, 20]
+                } else {
+                    [20, 20, 230]
+                }
+            })
+        })
+        .collect();
+    let mut bytes = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 95);
+    let mut exif = b"MM\0*\0\0\0\x08\0\x01".to_vec();
+    exif.extend_from_slice(&[0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0]);
+    encoder.set_exif_metadata(exif).unwrap();
+    encoder
+        .write_image(&raw, width, height, image::ExtendedColorType::Rgb8)
+        .unwrap();
+    bytes
+}
+fn pixel(image: &decoder::Decoded, x: u32, y: u32) -> [u8; 3] {
+    let at = ((y * image.width + x) * 4) as usize;
+    let rgba = &image.frames[0].rgba;
+    [rgba[at], rgba[at + 1], rgba[at + 2]]
+}
+#[test]
+fn jpeg_is_oriented_fitted_and_keeps_its_colours() {
+    let temp = Temp::new();
+    let path = temp.write("oriented.jpg", &oriented_jpeg(128, 64));
+    // Orientation 6 turns a 128 x 64 picture into 64 x 128: red half on top.
+    let full = decoder::load(&path, &Generation::default().next()).unwrap();
+    assert_eq!((full.source_width, full.source_height), (64, 128));
+    assert_eq!((full.width, full.height), (64, 128));
+    let (top, bottom) = (pixel(&full, 32, 16), pixel(&full, 32, 112));
+    assert!(top[0] > 180 && top[2] < 80, "{top:?}");
+    assert!(bottom[2] > 180 && bottom[0] < 80, "{bottom:?}");
+    for target in [
+        decoder::Target {
+            max_width: 16,
+            max_height: 32,
+        },
+        decoder::Target {
+            max_width: 21,
+            max_height: 40,
+        },
+    ] {
+        let fitted =
+            decoder::load_target(&path, &Generation::default().next(), target, &mut |_| {})
+                .unwrap();
+        assert_eq!((fitted.source_width, fitted.source_height), (64, 128));
+        assert!(fitted.serves(target), "{}x{}", fitted.width, fitted.height);
+        assert_eq!(
+            fitted.frames[0].rgba.len(),
+            (fitted.width * fitted.height * 4) as usize
+        );
+        let (top, bottom) = (
+            pixel(&fitted, fitted.width / 2, fitted.height / 4),
+            pixel(&fitted, fitted.width / 2, fitted.height * 3 / 4),
+        );
+        assert!(top[0] > 180 && top[2] < 80, "{top:?}");
+        assert!(bottom[2] > 180 && bottom[0] < 80, "{bottom:?}");
+    }
+}
+#[cfg(windows)]
+#[test]
+fn symlinks_are_not_opened_but_plain_files_are() {
+    use std::os::windows::fs::symlink_file;
+    let temp = Temp::new();
+    let real = temp.write("real.png", &encoded(ImageFormat::Png));
+    let link = temp.0.join("link.png");
+    if symlink_file(&real, &link).is_err() {
+        // Creating symlinks needs Developer Mode or elevation; nothing to test.
+        eprintln!("skipped: symlinks cannot be created here");
+        return;
+    }
+    let ticket = Generation::default().next();
+    assert!(decoder::load(&real, &ticket).is_ok());
+    assert!(matches!(decoder::load(&link, &ticket), Err(Error::Io(_))));
+    assert!(kova_image::windows_integration::path_blocks_reparse(&link));
+    assert!(!kova_image::windows_integration::path_blocks_reparse(&real));
 }

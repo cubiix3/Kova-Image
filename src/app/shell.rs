@@ -108,7 +108,7 @@ impl App {
                 self.nav.files.retain(|p| p != &path);
                 if self.requested.as_ref() == Some(&path) {
                     self.animation.stop();
-                    if let Some(next) = self.nav.step(0) {
+                    if let Some(next) = self.nav.step(0, false) {
                         // The folder list is already current; no rescan.
                         self.open(next, false);
                         self.undo_notice = self.undo.is_some();
@@ -176,6 +176,10 @@ pub(super) fn shell_job(job: ShellJob) -> Result<ShellResult, Error> {
         Action::CopyPath => {
             native::copy_path(job.owner, &path)?;
             Ok(ShellResult::Done("Path copied"))
+        }
+        Action::CopyFile => {
+            native::copy_file(job.owner, &path)?;
+            Ok(ShellResult::Done("File copied"))
         }
         Action::CopyImage => {
             let image = job.image.ok_or(Error::NotFound)?;

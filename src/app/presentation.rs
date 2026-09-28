@@ -13,6 +13,7 @@ impl App {
             );
             ui.set_picture(slint::Image::from_rgba8(buffer));
             ui.set_animated(image.frames.len() > 1);
+            ui.set_transparent(image.alpha);
             ui.set_paused(self.paused || self.playback.finished);
         }
     }
@@ -112,8 +113,9 @@ impl App {
     }
     pub(super) fn update_navigation(&self) {
         if let Some(ui) = self.ui.upgrade() {
-            ui.set_can_previous(self.nav.index > 0 && !self.nav.files.is_empty());
-            ui.set_can_next(self.nav.index + 1 < self.nav.files.len());
+            let wrap = self.settings.wrap && self.nav.files.len() > 1;
+            ui.set_can_previous((self.nav.index > 0 && !self.nav.files.is_empty()) || wrap);
+            ui.set_can_next(self.nav.index + 1 < self.nav.files.len() || wrap);
             ui.set_position_label(if self.nav.files.is_empty() {
                 "".into()
             } else {
@@ -151,6 +153,9 @@ impl App {
             }
             if let Some(camera) = &image.photo.camera {
                 rows.push(("Camera", camera.clone()));
+            }
+            if let Some(lens) = &image.photo.lens {
+                rows.push(("Lens", lens.clone()));
             }
             if let Some(exposure) = &image.photo.exposure {
                 rows.push(("Exposure", exposure.clone()));
@@ -250,7 +255,11 @@ impl App {
         self.update_view();
         self.schedule();
         self.update_info();
-        self.wake_chrome();
+        // A sharper decode of the picture already on screen must not bring the
+        // hidden controls back; only a newly shown picture does.
+        if reset {
+            self.wake_chrome();
+        }
         if !self.render_notifications {
             self.image_ready_without_notifier();
         }
@@ -263,6 +272,7 @@ impl App {
         if preview {
             return;
         }
+        self.arm_slideshow();
         if self.pending_copy {
             self.pending_copy = false;
             if self
@@ -374,7 +384,7 @@ impl App {
             path,
             Vec::new(),
             self.pending_scan,
-            self.settings.natural_sort,
+            self.settings.order(),
             target,
         );
     }

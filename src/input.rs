@@ -31,6 +31,8 @@ pub enum Action {
     Settings,
     Reveal,
     OpenWith,
+    Slideshow,
+    CopyFile,
     Minimize,
     Maximize,
     Close,
@@ -56,8 +58,9 @@ pub fn shortcut(key: &Key, modifiers: ModifiersState) -> Option<Action> {
     }
     match key {
         Key::Named(k) => match k {
-            NamedKey::ArrowLeft => Some(Previous),
-            NamedKey::ArrowRight => Some(Next),
+            NamedKey::ArrowLeft | NamedKey::PageUp | NamedKey::Backspace => Some(Previous),
+            NamedKey::ArrowRight | NamedKey::PageDown => Some(Next),
+            NamedKey::F5 => Some(Slideshow),
             NamedKey::Home => Some(First),
             NamedKey::End => Some(Last),
             NamedKey::F11 => Some(Fullscreen),
@@ -116,6 +119,8 @@ pub fn command(name: &str) -> Option<Action> {
         "settings" => Settings,
         "reveal" => Reveal,
         "open-with" => OpenWith,
+        "slideshow" => Slideshow,
+        "copy-file" => CopyFile,
         "minimize" => Minimize,
         "maximize" => Maximize,
         "close" => Close,

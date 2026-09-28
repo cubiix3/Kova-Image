@@ -2,7 +2,7 @@ use crate::{
     cache::Cache,
     decoder::{self, Decoded, Stamp, Target},
     error::Error,
-    folder_navigation,
+    folder_navigation::{self, Order},
     security::{self, Generation, Ticket},
 };
 use std::{
@@ -10,8 +10,13 @@ use std::{
     path::PathBuf,
     sync::{Arc, Condvar, Mutex},
     thread::{self, JoinHandle},
-    time::Instant,
+    time::{Duration, Instant},
 };
+
+/// How long the worker stays idle after a result before it decodes neighbours.
+/// A codec cannot be interrupted once its bytes are read, so speculative work
+/// started between two quick key presses would delay the picture that matters.
+const PRELOAD_DELAY: Duration = Duration::from_millis(150);
 
 pub enum Event {
     Video {
@@ -58,7 +63,7 @@ struct Request {
     path: PathBuf,
     neighbors: Vec<PathBuf>,
     scan: bool,
-    natural: bool,
+    order: Order,
     target: Target,
 }
 #[derive(Default)]
@@ -104,12 +109,36 @@ impl Loader {
                         path,
                         mut neighbors,
                         scan,
-                        natural,
+                        order,
                         target,
                     } = request;
                     let start = Instant::now();
-                    let video = crate::media::video_extension(&path)
-                        || crate::media::probe(&path).ok().flatten().is_some();
+                    // Content decides too, but only after the image decoders decline:
+                    // that saves a file open for every ordinary picture.
+                    let mut video = crate::media::video_extension(&path);
+                    let mut image = None;
+                    if !video {
+                        let outcome = cached_load(&mut cache, &path, &ticket, target, |image| {
+                            if ticket.is_current() {
+                                deliver(Event::Image {
+                                    id: ticket.id,
+                                    path: path.clone(),
+                                    result: Ok(image),
+                                    elapsed: start.elapsed(),
+                                    cached: false,
+                                    preview: true,
+                                });
+                            }
+                        });
+                        if matches!(outcome.0, Err(Error::Unsupported))
+                            && ticket.is_current()
+                            && crate::media::probe(&path).ok().flatten().is_some()
+                        {
+                            video = true;
+                        } else {
+                            image = Some(outcome);
+                        }
+                    }
                     if video {
                         let result = crate::media::open_video(&path, &ticket);
                         if ticket.is_current() {
@@ -119,20 +148,7 @@ impl Loader {
                                 result,
                             });
                         }
-                    } else {
-                        let (result, cached) =
-                            cached_load(&mut cache, &path, &ticket, target, |image| {
-                                if ticket.is_current() {
-                                    deliver(Event::Image {
-                                        id: ticket.id,
-                                        path: path.clone(),
-                                        result: Ok(image),
-                                        elapsed: start.elapsed(),
-                                        cached: false,
-                                        preview: true,
-                                    });
-                                }
-                            });
+                    } else if let Some((result, cached)) = image {
                         if !ticket.is_current() {
                             continue;
                         }
@@ -146,7 +162,7 @@ impl Loader {
                         });
                     }
                     if scan && ticket.is_current() {
-                        let result = folder_navigation::scan(&path, &ticket, natural);
+                        let result = folder_navigation::scan(&path, &ticket, order);
                         if let Ok(files) = &result {
                             let mut nav = folder_navigation::Navigation::default();
                             nav.set(files.clone(), &path);
@@ -161,7 +177,11 @@ impl Loader {
                         }
                     }
                     // Single worker: foreground always wins over queued preloads.
-                    // At most the next and previous image are speculated upon.
+                    // At most the next and previous image are speculated upon,
+                    // and only once the user has paused on this one.
+                    if neighbors.is_empty() || !idle_for(&worker_mailbox, PRELOAD_DELAY) {
+                        continue;
+                    }
                     for neighbor in neighbors.into_iter().take(2) {
                         if crate::media::video_extension(&neighbor) {
                             continue;
@@ -185,7 +205,7 @@ impl Loader {
         path: PathBuf,
         neighbors: Vec<PathBuf>,
         scan: bool,
-        natural: bool,
+        order: Order,
         target: Target,
     ) -> u64 {
         let ticket = self.generation.next();
@@ -197,7 +217,7 @@ impl Loader {
                 path,
                 neighbors,
                 scan,
-                natural,
+                order,
                 target,
             });
             signal.notify_one();
@@ -217,6 +237,27 @@ impl Drop for Loader {
         // Never block the closing UI on a codec with no internal cancellation.
         // Dropping JoinHandle detaches; process exit terminates remaining work.
         self.worker.take();
+    }
+}
+/// Waits up to `delay` and reports whether nothing new arrived meanwhile.
+fn idle_for(mailbox: &(Mutex<Mailbox>, Condvar), delay: Duration) -> bool {
+    let (lock, signal) = mailbox;
+    let deadline = Instant::now() + delay;
+    let Ok(mut state) = lock.lock() else {
+        return false;
+    };
+    loop {
+        if state.stop || state.newest.is_some() {
+            return false;
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return true;
+        }
+        state = match signal.wait_timeout(state, deadline - now) {
+            Ok((state, _)) => state,
+            Err(_) => return false,
+        };
     }
 }
 fn cached_load(

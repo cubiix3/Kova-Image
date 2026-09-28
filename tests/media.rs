@@ -132,7 +132,7 @@ fn mixed_navigation_and_cancelled_video_admission() {
     let old = generation.next();
     let ticket = generation.next();
     let path = dir.0.join("item2.png");
-    let files = kova_image::folder_navigation::scan(&path, &ticket, true).unwrap();
+    let files = kova_image::folder_navigation::scan(&path, &ticket, Default::default()).unwrap();
     assert_eq!(
         files
             .iter()
@@ -144,4 +144,45 @@ fn mixed_navigation_and_cancelled_video_admission() {
         media::open_video(&path, &old),
         Err(Error::Cancelled)
     ));
+}
+#[test]
+fn loader_recognises_video_by_content_and_preloads_after_a_pause() {
+    use kova_image::{
+        decoder::Target,
+        image_loader::{Event, Loader},
+    };
+    use std::time::Duration;
+    let dir = Temp::new();
+    let video = dir.write("renamed.dat", &movie(&atom(b"url ", &[0, 0, 0, 1])));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let loader = Loader::new(move |event| {
+        let _ = tx.send(event);
+    })
+    .unwrap();
+    let id = loader.request(video, vec![], false, Default::default(), Target::full());
+    let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(matches!(event, Event::Video { id: got, result: Ok(_), .. } if got == id));
+
+    // An image whose neighbour is decoded once the user pauses on it.
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgba8(image::RgbaImage::new(8, 8))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let (first, second) = (dir.write("a.png", &png), dir.write("b.png", &png));
+    let id = loader.request(
+        first,
+        vec![second.clone()],
+        false,
+        Default::default(),
+        Target::full(),
+    );
+    let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(matches!(event, Event::Image { id: got, cached: false, .. } if got == id));
+    std::thread::sleep(Duration::from_millis(800));
+    let id = loader.request(second, vec![], false, Default::default(), Target::full());
+    let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(
+        matches!(event, Event::Image { id: got, cached: true, result: Ok(_), .. } if got == id),
+        "the neighbour should already be cached"
+    );
 }
