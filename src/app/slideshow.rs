@@ -67,7 +67,9 @@ impl App {
     /// video arms it when it ends instead, and a loading picture when it shows.
     pub(super) fn arm_slideshow(&mut self) {
         self.slideshow_timer.stop();
-        if !self.slideshow || self.displayed != self.requested {
+        // While the folder is being scanned the list is empty, and a step
+        // would read that as the end. The Folder event arms the timer instead.
+        if !self.slideshow || self.displayed != self.requested || self.pending_scan {
             return;
         }
         if self.video_stamp.is_some() && !self.video_state.as_ref().is_some_and(|s| s.ended) {

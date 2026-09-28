@@ -531,10 +531,13 @@ impl App {
                                 self.status("Slideshow finished");
                             }
                         }
+                        // A slideshow that waited for the list starts its interval now.
+                        self.arm_slideshow();
                     }
                     Err(e) => {
                         self.deferred_nav = None;
                         self.status(format!("Folder navigation: {e}"));
+                        self.arm_slideshow();
                     }
                 }
             }
