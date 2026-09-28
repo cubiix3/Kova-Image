@@ -98,6 +98,8 @@ struct App {
     scan_order: folder_navigation::Order,
     /// A sort change made while a video played; the next open rescans.
     pending_rescan: bool,
+    /// Navigation asked for while a pending rescan was carried out first.
+    deferred_nav: Option<Action>,
     view: View,
     settings: Settings,
     settings_ready: bool,
@@ -240,6 +242,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         pending_scan: false,
         scan_order: folder_navigation::Order::default(),
         pending_rescan: false,
+        deferred_nav: None,
         view,
         settings,
         settings_ready: false,
@@ -370,6 +373,8 @@ impl App {
     }
     fn open(&mut self, path: PathBuf, scan: bool) {
         let scan = std::mem::take(&mut self.pending_rescan) || scan;
+        // Opening anything else cancels a navigation waiting for a rescan.
+        self.deferred_nav = None;
         if scan {
             self.nav = Navigation::default();
         }
@@ -517,8 +522,20 @@ impl App {
                         self.nav.set(files, &path);
                         self.update_navigation();
                         self.update_info();
+                        // Carry out the step that waited for the reordered list.
+                        if let Some(action) = self.deferred_nav.take() {
+                            let before = self.requested.clone();
+                            self.action(action);
+                            if self.slideshow && self.requested == before {
+                                self.stop_slideshow(false);
+                                self.status("Slideshow finished");
+                            }
+                        }
                     }
-                    Err(e) => self.status(format!("Folder navigation: {e}")),
+                    Err(e) => {
+                        self.deferred_nav = None;
+                        self.status(format!("Folder navigation: {e}"));
+                    }
                 }
             }
             _ => {}

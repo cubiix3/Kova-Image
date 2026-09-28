@@ -30,6 +30,15 @@ impl App {
             SeekBack => self.seek_video(-5., false),
             SeekForward => self.seek_video(5., false),
             Previous | Next | First | Last => {
+                // The folder order changed while a video played. Rescan first, so
+                // the step is taken in the new order rather than the stale list.
+                if self.pending_rescan
+                    && let Some(path) = self.requested.clone()
+                {
+                    self.open(path, true);
+                    self.deferred_nav = Some(action);
+                    return;
+                }
                 let path = match action {
                     Previous => self.nav.step(-1, self.settings.wrap),
                     Next => self.nav.step(1, self.settings.wrap),
