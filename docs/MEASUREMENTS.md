@@ -91,3 +91,5 @@ writing into the decoded buffer instead of a copy: 24 MP JPEG at 1080p 82 MiB,
 24 MP JPEG full size 102 MiB, 50 MP JPEG at 4K 166 MiB, 50 MP JPEG full-size
 request (kept at 32 MP) 229 MiB. No 64 MP file was measured; its 192 MiB RGB
 buffer is the largest single allocation this path makes.
+A 50 MP grayscale JPEG, shrunk before it is widened, peaks at 60 MiB for a 4K
+target and 165 MiB for a full-size request.

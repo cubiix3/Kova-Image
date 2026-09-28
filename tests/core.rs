@@ -637,3 +637,39 @@ fn background_disposal_makes_an_rgb_animation_transparent() {
             .alpha
     );
 }
+#[test]
+fn grayscale_jpeg_is_shrunk_before_it_is_widened() {
+    use image::ImageEncoder;
+    let temp = Temp::new();
+    // 96 x 64 gradient, brighter to the right, with EXIF orientation 6.
+    let raw: Vec<u8> = (0..64u32)
+        .flat_map(|_| (0..96u32).map(|x| (x * 255 / 95) as u8))
+        .collect();
+    let mut bytes = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 95);
+    let mut exif = b"MM\0*\0\0\0\x08\0\x01".to_vec();
+    exif.extend_from_slice(&[0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0]);
+    encoder.set_exif_metadata(exif).unwrap();
+    encoder
+        .write_image(&raw, 96, 64, image::ExtendedColorType::L8)
+        .unwrap();
+    let path = temp.write("gray.jpg", &bytes);
+    let full = decoder::load(&path, &Generation::default().next()).unwrap();
+    assert_eq!((full.source_width, full.source_height), (64, 96));
+    assert_eq!((full.width, full.height), (64, 96));
+    let target = decoder::Target {
+        max_width: 16,
+        max_height: 24,
+    };
+    let fitted =
+        decoder::load_target(&path, &Generation::default().next(), target, &mut |_| {}).unwrap();
+    assert_eq!((fitted.width, fitted.height), (16, 24));
+    assert!(fitted.serves(target));
+    assert_eq!(fitted.frames[0].rgba.len(), 16 * 24 * 4);
+    // Orientation 6 turns the left-dark, right-bright gradient into
+    // top-dark, bottom-bright, and gray stays gray.
+    let (top, bottom) = (pixel(&fitted, 8, 2), pixel(&fitted, 8, 21));
+    assert!(top[0] < 80 && bottom[0] > 170, "{top:?} {bottom:?}");
+    assert!(top[0] == top[1] && top[1] == top[2], "{top:?}");
+    assert!(!fitted.alpha);
+}
