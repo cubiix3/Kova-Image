@@ -85,3 +85,9 @@ the `image` crate's Triangle resize. Quality against Triangle on a synthetic
 test pattern stays within a mean difference of 3 levels (unit test). Sorting
 100,000 generated names with the Shell's logical comparison took 186 ms, against
 96 ms for plain text order; this measures the sort only.
+
+Peak working set of the `kova-bench` process for one decode, with the resampler
+writing into the decoded buffer instead of a copy: 24 MP JPEG at 1080p 82 MiB,
+24 MP JPEG full size 102 MiB, 50 MP JPEG at 4K 166 MiB, 50 MP JPEG full-size
+request (kept at 32 MP) 229 MiB. No 64 MP file was measured; its 192 MiB RGB
+buffer is the largest single allocation this path makes.
