@@ -380,6 +380,9 @@ impl App {
             return;
         };
         self.refining = true;
+        if self.pending_scan {
+            self.scan_order = self.settings.order();
+        }
         self.id = self.loader.request(
             path,
             Vec::new(),

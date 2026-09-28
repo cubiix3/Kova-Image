@@ -2,15 +2,29 @@ use super::*;
 
 impl App {
     /// Sorting is decided while the folder is scanned, so a changed order needs
-    /// a fresh scan. The open picture comes from the cache; a running video is
-    /// left alone and the new order applies from the next file that is opened.
+    /// a fresh scan. The open picture comes from the cache. A running video is
+    /// left alone; the scan is remembered and happens when the next file opens.
     pub(super) fn rescan_folder(&mut self) {
         if self.video_stamp.is_some() {
+            self.pending_rescan = true;
             return;
         }
         if let Some(path) = self.requested.clone() {
             self.open(path, true);
         }
+    }
+    /// Settings load after a file given on the command line was already
+    /// requested with the default order. Returns true when that file was
+    /// requested again with the saved order.
+    pub(super) fn apply_saved_order(&mut self) -> bool {
+        if self.requested.is_none()
+            || self.video_stamp.is_some()
+            || self.scan_order == self.settings.order()
+        {
+            return false;
+        }
+        self.rescan_folder();
+        true
     }
     pub(super) fn toggle_slideshow(&mut self) {
         if self.slideshow {
@@ -22,6 +36,18 @@ impl App {
             return;
         }
         self.slideshow = true;
+        // A slideshow plays each video once, so it overrides pausing and
+        // looping for as long as it runs.
+        if self.video_stamp.is_some()
+            && let Some(player) = &self.video
+        {
+            player.looping(false);
+            player.pause(false);
+            self.paused = false;
+            if let Some(ui) = self.ui.upgrade() {
+                ui.set_paused(false);
+            }
+        }
         self.arm_slideshow();
         self.feedback(format!("Slideshow · {} s", self.settings.slideshow_seconds));
     }
@@ -29,6 +55,9 @@ impl App {
         self.slideshow_timer.stop();
         if self.slideshow {
             self.slideshow = false;
+            if let Some(player) = &self.video {
+                player.looping(self.settings.video_loop);
+            }
             if announce {
                 self.feedback("Slideshow stopped");
             }
