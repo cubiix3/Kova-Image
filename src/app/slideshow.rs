@@ -92,6 +92,10 @@ impl App {
         if !self.slideshow {
             return;
         }
+        if self.pending_rescan {
+            self.action(Action::Next);
+            return;
+        }
         let current = self.requested.clone();
         match self.nav.step(1, self.settings.wrap) {
             Some(next) if Some(&next) != current.as_ref() => self.open(next, false),
