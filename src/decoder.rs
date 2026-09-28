@@ -1,5 +1,5 @@
 use crate::{
-    animation::{Loops, frame_delay},
+    animation::{Loops, frame_delay, gif_frame_delay},
     error::Error,
     security::{self, Ticket},
 };
@@ -261,10 +261,10 @@ fn decode(
             decoder.set_limits(security::limits())?;
             let (frames, animated) = collect(
                 decoder.into_frames(),
-                width,
-                height,
+                (width, height),
                 target,
                 ticket,
+                gif_frame_delay,
                 &mut |frame, stored_w, stored_h| {
                     preview(partial(
                         frame,
@@ -288,10 +288,10 @@ fn decode(
                 loops = loop_count(decoder.loop_count());
                 let (frames, animated) = collect(
                     decoder.into_frames(),
-                    width,
-                    height,
+                    (width, height),
                     target,
                     ticket,
+                    frame_delay,
                     &mut |frame, stored_w, stored_h| {
                         preview(partial(
                             frame,
@@ -318,10 +318,10 @@ fn decode(
                 loops = loop_count(decoder.loop_count());
                 let (frames, animated) = collect(
                     decoder.into_frames(),
-                    width,
-                    height,
+                    (width, height),
                     target,
                     ticket,
+                    frame_delay,
                     &mut |frame, stored_w, stored_h| {
                         preview(partial(
                             frame,
@@ -485,10 +485,10 @@ fn loop_count(count: image::metadata::LoopCount) -> Loops {
 /// orientation first, then fitting, which keeps rotated bounds exact.
 fn collect(
     mut frames: image::Frames<'_>,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
     target: Target,
     ticket: &Ticket,
+    delay: fn(u32, u32) -> Duration,
     preview: &mut dyn FnMut(Frame, u32, u32),
     srgb: &Srgb,
 ) -> Result<(Vec<Frame>, bool), Error> {
@@ -534,7 +534,7 @@ fn collect(
         }
         result.push(Frame {
             rgba,
-            delay: frame_delay(n, d),
+            delay: delay(n, d),
         });
     }
     if result.is_empty() {

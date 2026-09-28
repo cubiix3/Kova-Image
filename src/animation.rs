@@ -4,15 +4,22 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Loops(pub Option<u32>);
 
-/// Frames that ask for 10 ms or less are shown for 100 ms, as browsers do.
-/// Encoders write 0 or 1 centisecond for "as fast as possible", and playing
-/// those literally runs the animation about ten times too fast.
+/// Delay of an APNG or WebP frame: as encoded, within 10 ms to 60 seconds.
 pub fn frame_delay(numerator_ms: u32, denominator: u32) -> Duration {
     let micros = u64::from(numerator_ms).saturating_mul(1000) / u64::from(denominator.max(1));
-    if micros <= 10_000 {
-        return Duration::from_millis(100);
+    Duration::from_micros(micros.clamp(10_000, 60_000_000))
+}
+/// Delay of a GIF frame. GIF counts centiseconds and encoders write 0 or 1 for
+/// "as fast as possible"; browsers show those for 100 ms, and playing them
+/// literally runs the animation about ten times too fast. APNG and WebP count
+/// milliseconds, so a 10 ms frame there is a real delay and keeps `frame_delay`.
+pub fn gif_frame_delay(numerator_ms: u32, denominator: u32) -> Duration {
+    let delay = frame_delay(numerator_ms, denominator);
+    if delay <= Duration::from_millis(10) {
+        Duration::from_millis(100)
+    } else {
+        delay
     }
-    Duration::from_micros(micros.min(60_000_000))
 }
 
 #[derive(Default, Debug)]
@@ -44,11 +51,17 @@ mod tests {
     use super::*;
     #[test]
     fn timing_is_bounded_and_variable() {
-        assert_eq!(frame_delay(0, 0), Duration::from_millis(100));
-        assert_eq!(frame_delay(10, 1), Duration::from_millis(100));
-        assert_eq!(frame_delay(20, 1), Duration::from_millis(20));
+        assert_eq!(frame_delay(0, 0), Duration::from_millis(10));
+        assert_eq!(frame_delay(10, 1), Duration::from_millis(10));
         assert_eq!(frame_delay(125, 2), Duration::from_micros(62500));
         assert_eq!(frame_delay(u32::MAX, 1), Duration::from_secs(60));
+    }
+    #[test]
+    fn only_gif_turns_a_zero_or_one_centisecond_delay_into_100_ms() {
+        assert_eq!(gif_frame_delay(0, 1), Duration::from_millis(100));
+        assert_eq!(gif_frame_delay(10, 1), Duration::from_millis(100));
+        assert_eq!(gif_frame_delay(20, 1), Duration::from_millis(20));
+        assert_eq!(gif_frame_delay(u32::MAX, 1), Duration::from_secs(60));
     }
     #[test]
     fn finite_and_infinite_loops() {
