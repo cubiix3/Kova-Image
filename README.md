@@ -109,7 +109,7 @@ the Windows Media Foundation components, which Windows N editions may lack.
 | **View** | Fit to window, fit width, 100%, zoom around the cursor, pan, rotate and flip. A faint grid shows through transparent images. The view is never written back to the file. |
 | **Animation** | Pause and resume, per-frame timing, loop counts, and the first frame appears while the rest decodes. |
 | **Video** | Play/pause, timeline, elapsed and total time, volume, mute and optional looping. Video keeps playing while you drag the window. |
-| **Windows actions** | Copy the image, the file itself or its path, move to the Recycle Bin and undo, Show in Explorer, Open with. Files in OneDrive and similar cloud folders open like any other. |
+| **Windows actions** | Copy the image, the file itself or its path, move to the Recycle Bin and undo, Show in Explorer, Open with. Cloud-sync placeholders (OneDrive and similar) are accepted; this is not yet tested against a live provider. |
 | **Interface** | Dark, compact chrome, fullscreen, auto-hiding controls, brief on-screen feedback and visible keyboard focus. |
 
 ## Supported formats

@@ -188,12 +188,17 @@ fn decode(
     let file = options.open(path)?;
     let meta = file.metadata()?;
     #[cfg(windows)]
-    {
+    let (file, meta) = {
         use std::os::windows::fs::MetadataExt;
         if crate::windows_integration::blocks_reparse(&file, meta.file_attributes()) {
             return Err(Error::Io("Reparse-point images are not opened".into()));
         }
-    }
+        // A cloud placeholder is read through an ordinary handle.
+        let file =
+            crate::windows_integration::reopen_placeholder(file, path, meta.file_attributes())?;
+        let meta = file.metadata()?;
+        (file, meta)
+    };
     if !meta.is_file() {
         return Err(Error::Unsupported);
     }

@@ -37,7 +37,9 @@ On Windows, file handles deny concurrent writes/deletion, open reparse points
 without following them, and reject reparse-point image handles. The exception is
 the cloud-files tag family (`IO_REPARSE_TAG_CLOUD` and its variants), which
 OneDrive, Dropbox and iCloud use for placeholders. It is read from the open
-handle, never from the path. Symlinks, junctions and every other tag stay
+handle, never from the path. Such a file is then opened again without
+`FILE_FLAG_OPEN_REPARSE_POINT` so reads reach the provider, and the new handle is
+accepted only if volume and file index match the first one. Symlinks, junctions and every other tag stay
 refused. Reading a dehydrated placeholder makes its provider fetch the content;
 Kova Image itself opens no connection. This path has been exercised with symlinks
 only, not with a live sync provider. Length and
