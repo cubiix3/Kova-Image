@@ -571,3 +571,33 @@ fn symlinks_are_not_opened_but_plain_files_are() {
     assert!(kova_image::windows_integration::path_blocks_reparse(&link));
     assert!(!kova_image::windows_integration::path_blocks_reparse(&real));
 }
+
+#[test]
+fn transparency_in_a_later_frame_is_reported() {
+    // First frame fully opaque, second frame with a transparent pixel.
+    let temp = Temp::new();
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, 2, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_animated(2, 0).unwrap();
+        let mut writer = encoder.write_header().unwrap();
+        writer
+            .write_image_data(&[9, 9, 9, 255, 9, 9, 9, 255])
+            .unwrap();
+        writer
+            .write_image_data(&[9, 9, 9, 255, 9, 9, 9, 0])
+            .unwrap();
+    }
+    let path = temp.write("later.png", &bytes);
+    let image = decoder::load(&path, &Generation::default().next()).unwrap();
+    assert_eq!(image.frames.len(), 2);
+    assert!(image.alpha);
+    let opaque = temp.write("opaque.png", &encoded(ImageFormat::Png));
+    assert!(
+        !decoder::load(&opaque, &Generation::default().next())
+            .unwrap()
+            .alpha
+    );
+}

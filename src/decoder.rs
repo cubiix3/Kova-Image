@@ -68,8 +68,8 @@ pub struct Decoded {
     pub loops: Loops,
     pub stamp: Stamp,
     pub photo: PhotoInfo,
-    /// True when the first frame has transparent pixels, so the view can
-    /// show a grid behind it.
+    /// True when any frame has transparent pixels, so the view can show a
+    /// grid behind the picture.
     pub alpha: bool,
 }
 impl Decoded {
@@ -380,7 +380,8 @@ fn decode(
         height = h;
         to_srgb(&mut frames[0].rgba, &srgb);
     }
-    let alpha = may_have_alpha && frames.first().is_some_and(|f| has_alpha(&f.rgba));
+    // Every frame counts: disposal can clear pixels that the first frame covers.
+    let alpha = may_have_alpha && frames.iter().any(|f| has_alpha(&f.rgba));
     Ok(Decoded {
         width,
         height,
@@ -517,7 +518,7 @@ fn collect(
     Ok((result, announced))
 }
 fn has_alpha(rgba: &[u8]) -> bool {
-    rgba.iter().skip(3).step_by(4).any(|a| *a != 255)
+    rgba.chunks_exact(4).any(|pixel| pixel[3] != 255)
 }
 fn partial(
     frame: Frame,
