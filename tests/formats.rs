@@ -585,6 +585,34 @@ fn dds_uncompressed_layouts_follow_their_masks() {
 }
 
 #[test]
+fn dds_palettized_textures_use_their_rgba_palette() {
+    const PALETTE_INDEXED8: u32 = 0x20;
+    let mut data = vec![0u8; 1024];
+    data[4..8].copy_from_slice(&[255, 136, 52, 255]); // entry 1: opaque orange
+    data[8..12].copy_from_slice(&[10, 20, 30, 128]); // entry 2: half transparent
+    data.extend_from_slice(&[0, 1, 2, 1]); // 2 x 2 indices
+    let file = packed(2, 2, PALETTE_INDEXED8, 8, [0; 4]).bytes(&data);
+    let image = dds_load(&file).unwrap();
+    assert_eq!(
+        image.frames[0].rgba,
+        [
+            0, 0, 0, 0, 255, 136, 52, 255, 10, 20, 30, 128, 255, 136, 52, 255
+        ]
+    );
+    assert!(image.alpha);
+    // A palette whose fourth bytes are all zero is an opaque one.
+    let mut data = vec![0u8; 1024];
+    data[4..8].copy_from_slice(&[1, 2, 3, 0]);
+    data.extend_from_slice(&[1, 1, 1, 1]);
+    let image = dds_load(&packed(2, 2, PALETTE_INDEXED8, 8, [0; 4]).bytes(&data)).unwrap();
+    assert_eq!(image.frames[0].rgba[..4], [1, 2, 3, 255]);
+    assert!(!image.alpha);
+    // The palette is part of the file: cut short, it is an error.
+    let short = packed(2, 2, PALETTE_INDEXED8, 8, [0; 4]).bytes(&data[..500]);
+    assert!(dds_load(&short).is_err());
+}
+
+#[test]
 fn dds_dx10_header_names_the_format() {
     // R8G8B8A8_UNORM
     let file = dx10(1, 1, 28).bytes(&[1, 2, 3, 4]);
@@ -658,4 +686,33 @@ fn dds_damage_is_an_error_not_a_panic() {
     // Not a pixel format Kova Image reads: a YUV layout.
     let file = packed(2, 2, 0x200, 16, [0; 4]).bytes(&[0; 8]);
     assert!(matches!(dds_load(&file), Err(Error::Unsupported)));
+}
+
+#[test]
+fn a_tga_that_is_named_like_another_image_is_still_a_tga() {
+    // Texture folders of games hold TGA files called .dds, .png and so on.
+    let mut tga = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(5, 3, |x, y| {
+        image::Rgba([x as u8 * 50, y as u8 * 80, 7, 200])
+    }))
+    .write_to(&mut tga, image::ImageFormat::Tga)
+    .unwrap();
+    let temp = Temp::new();
+    for name in ["texture.dds", "texture.png", "texture.webp", "texture.tga"] {
+        let image = load(&temp.write(name, tga.get_ref())).unwrap();
+        assert_eq!(
+            (image.format, image.width, image.height),
+            (Format::Tga, 5, 3),
+            "{name}"
+        );
+        // Pixel (4, 2) of the image above.
+        let at = (2 * 5 + 4) * 4;
+        assert_eq!(
+            image.frames[0].rgba[at..at + 4],
+            [200, 160, 7, 200],
+            "{name}"
+        );
+    }
+    // Arbitrary bytes under an image name are still not an image.
+    assert!(load(&temp.write("noise.dds", &[0x5a; 200])).is_err());
 }

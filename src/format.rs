@@ -174,6 +174,36 @@ fn is_pnm(head: &[u8]) -> bool {
         && head[2].is_ascii_whitespace()
 }
 
+/// Whether the first bytes are a plausible TGA header. TGA has no signature, so
+/// this is a set of constraints that a file of another kind almost never meets:
+/// a known image type, a colour map only where the type uses one, a depth that
+/// fits the type, a non-empty size and the two reserved descriptor bits clear.
+fn is_tga_header(head: &[u8]) -> bool {
+    let Some(h) = head.get(..18) else {
+        return false;
+    };
+    let (map_type, image_type) = (h[1], h[2]);
+    let (width, height) = (
+        u16::from_le_bytes([h[12], h[13]]),
+        u16::from_le_bytes([h[14], h[15]]),
+    );
+    let (map_entry, depth, descriptor) = (h[7], h[16], h[17]);
+    let depth_fits = match image_type {
+        1 | 9 => depth == 8 || depth == 16,
+        2 | 10 => matches!(depth, 15 | 16 | 24 | 32),
+        3 | 11 => depth == 8 || depth == 16,
+        _ => false,
+    };
+    let map_fits = match (image_type, map_type) {
+        (1 | 9, 1) => matches!(map_entry, 15 | 16 | 24 | 32),
+        (1 | 9, _) => false,
+        (_, 0) => true,
+        (_, 1) => matches!(map_entry, 15 | 16 | 24 | 32),
+        _ => false,
+    };
+    depth_fits && map_fits && width > 0 && height > 0 && descriptor & 0xc0 == 0
+}
+
 /// Identifies a file from its first bytes and extension.
 pub fn sniff(head: &[u8], extension: Option<&str>) -> Option<Format> {
     if is_jpeg_xl(head) {
@@ -216,6 +246,11 @@ pub fn sniff(head: &[u8], extension: Option<&str>) -> Option<Format> {
         return Some(Format::Svg);
     }
     if is(extension, &["tga"]) {
+        return Some(Format::Tga);
+    }
+    // Game and texture folders hold TGA files named .dds, .png and so on. A file
+    // that carries an image extension but no known signature is looked at as TGA.
+    if is(extension, IMAGE_EXTENSIONS) && is_tga_header(head) {
         return Some(Format::Tga);
     }
     None
@@ -270,6 +305,42 @@ mod tests {
         assert_eq!(sniff(tiff, Some("dng")), Some(Format::Raw));
         assert_eq!(sniff(&[0; 18], Some("tga")), Some(Format::Tga));
         assert_eq!(sniff(&[0; 18], Some("dat")), None);
+    }
+    #[test]
+    fn a_tga_with_another_image_extension_is_found_by_its_header() {
+        // 32 x 32, 32 bit true colour, as found under the name autopickup.dds.
+        let mut tga = [0u8; 18];
+        tga[2] = 2;
+        tga[12..16].copy_from_slice(&[32, 0, 32, 0]);
+        tga[16] = 32;
+        assert_eq!(sniff(&tga, Some("dds")), Some(Format::Tga));
+        assert_eq!(sniff(&tga, Some("png")), Some(Format::Tga));
+        // Only files that claim to be images, so other kinds are not guessed at.
+        assert_eq!(sniff(&tga, Some("dat")), None);
+        assert_eq!(sniff(&tga, None), None);
+        // A signature still wins over the header check.
+        let mut dds = tga;
+        dds[..4].copy_from_slice(b"DDS ");
+        assert_eq!(sniff(&dds, Some("dds")), Some(Format::Dds));
+        // Wrong depth, no size, a colour map on a true colour image, or a
+        // too short header: not a TGA.
+        let mut bad = tga;
+        bad[16] = 12;
+        assert_eq!(sniff(&bad, Some("dds")), None);
+        let mut bad = tga;
+        bad[12..14].copy_from_slice(&[0, 0]);
+        assert_eq!(sniff(&bad, Some("dds")), None);
+        let mut bad = tga;
+        bad[1] = 1;
+        assert_eq!(sniff(&bad, Some("dds")), None);
+        assert_eq!(sniff(&tga[..17], Some("dds")), None);
+        // Colour-mapped and grey variants.
+        let mut mapped = tga;
+        (mapped[1], mapped[2], mapped[7], mapped[16]) = (1, 1, 24, 8);
+        assert_eq!(sniff(&mapped, Some("dds")), Some(Format::Tga));
+        let mut grey = tga;
+        (grey[2], grey[16]) = (11, 8);
+        assert_eq!(sniff(&grey, Some("dds")), Some(Format::Tga));
     }
     #[test]
     fn svg_is_found_after_a_prologue() {

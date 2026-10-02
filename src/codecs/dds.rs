@@ -3,11 +3,11 @@
 //! an array, cube map or volume.
 //!
 //! Supported: block compression BC1 to BC5 and BC7 (the legacy FourCC codes
-//! DXT1 to DXT5, ATI1, ATI2, and the DX10 header's DXGI formats), and
-//! uncompressed pixels described by channel masks (RGB, RGBA, luminance, alpha,
-//! 8 to 32 bits) or by common DXGI formats. Not supported, and reported as
-//! unsupported: BC6H and floating point or 16-bit formats, signed formats, and
-//! YUV or bump map layouts.
+//! DXT1 to DXT5, ATI1, ATI2, and the DX10 header's DXGI formats), uncompressed
+//! pixels described by channel masks (RGB, RGBA, luminance, alpha, 8 to 32 bits)
+//! or by common DXGI formats, and 8 bit palettized textures, which older games
+//! used for effects. Not supported, and reported as unsupported: BC6H and
+//! floating point or 16-bit formats, signed formats, and YUV or bump map layouts.
 //!
 //! The data is read strip by strip, so only the RGBA result is kept in memory.
 //! The BC7 partition tables follow the Microsoft BC7 specification; they were
@@ -30,6 +30,7 @@ fn corrupted(message: &str) -> Error {
 const DDPF_ALPHAPIXELS: u32 = 0x1;
 const DDPF_ALPHA: u32 = 0x2;
 const DDPF_FOURCC: u32 = 0x4;
+const DDPF_PALETTE_INDEXED8: u32 = 0x20;
 const DDPF_RGB: u32 = 0x40;
 const DDPF_LUMINANCE: u32 = 0x2_0000;
 
@@ -152,6 +153,8 @@ enum Layout {
         premultiplied: bool,
     },
     Packed(Packed),
+    /// 8 bit indices into a palette of 256 RGBA entries that follows the header.
+    Indexed,
 }
 
 struct Header {
@@ -260,6 +263,8 @@ fn parse_header(head: &[u8]) -> Result<Header, Error> {
             // Alpha only: shown as grey, so that the shape is visible.
             Layout::Packed(Packed::grey(bytes, masks[3], 0))
         }
+    } else if flags & DDPF_PALETTE_INDEXED8 != 0 && bit_count == 8 {
+        Layout::Indexed
     } else {
         return Err(Error::Unsupported);
     };
@@ -773,6 +778,28 @@ pub(super) fn decode(mut reader: Reader, ticket: &Ticket) -> Result<Pending, Err
                 }
             }
             packed.a.present()
+        }
+        Layout::Indexed => {
+            // The palette entries are red, green, blue and alpha. Writers that leave
+            // the fourth byte unused set it to zero for every entry: opaque then.
+            let mut table = [0u8; 1024];
+            fill(&mut reader, &mut table, ticket)?;
+            let unused = table.chunks_exact(4).all(|entry| entry[3] == 0);
+            let mut row = vec![0u8; width];
+            let mut translucent = false;
+            for (y, out) in rgba.chunks_exact_mut(width * 4).enumerate() {
+                if y % 16 == 0 {
+                    ticket.check()?;
+                }
+                fill(&mut reader, &mut row, ticket)?;
+                for (pixel, &index) in out.chunks_exact_mut(4).zip(&row) {
+                    let entry = &table[usize::from(index) * 4..][..4];
+                    let alpha = if unused { 255 } else { entry[3] };
+                    translucent |= alpha != 255;
+                    pixel.copy_from_slice(&[entry[0], entry[1], entry[2], alpha]);
+                }
+            }
+            translucent
         }
     };
     Ok(Pending {
