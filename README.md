@@ -110,7 +110,7 @@ the Windows Media Foundation components, which Windows N editions may lack.
 | **Animation** | Pause and resume, per-frame timing, loop counts, and the first frame appears while the rest decodes. |
 | **Video** | Play/pause, timeline, elapsed and total time, volume, mute and optional looping. Video keeps playing while you drag the window. |
 | **Windows actions** | Copy the image, the file itself or its path, move to the Recycle Bin and undo, Show in Explorer, Open with. Cloud-sync placeholders (OneDrive and similar) are accepted; this is not yet tested against a live provider. |
-| **Explorer previews** | Per user, an installer task that is on by default, also in the menu (**Show previews in Explorer**, or `kova-image.exe --register-thumbnails`). Explorer and the file dialogs then show thumbnails for the formats Windows cannot preview itself, such as WebP, AVIF, HEIC, JPEG XL, SVG and camera RAW, and never take over an extension whose preview still works. It does replace a preview provider whose DLL no longer exists (the leftover of an uninstalled program) and, because texture tools register their own, the DDS provider. It uses `kova_thumbnails.dll`, which carries the same decoders and limits; **Remove Explorer previews** (or `--unregister-thumbnails`) removes it again. |
+| **Explorer previews** | Per user, an installer task that is on by default, also in the menu (**Show previews in Explorer**, or `kova-image.exe --register-thumbnails`). Explorer and the file dialogs then show thumbnails for every format Kova Image opens, such as WebP, AVIF, HEIC, JPEG XL, SVG, camera RAW, TGA and DDS. For PNG, JPEG, GIF, BMP, TIFF and ICO, Windows' own provider still makes the preview whenever the file really is one, so those look exactly as before; Kova decodes only what Windows cannot read, such as a TGA that is named `.png`. Another program's working preview is not replaced (the DDS provider of texture tools is, on purpose); a leftover provider whose DLL is gone is. It uses `kova_thumbnails.dll`, which carries the same decoders and limits; **Remove Explorer previews** (or `--unregister-thumbnails`) removes it again. |
 | **Interface** | Dark, compact chrome, fullscreen, auto-hiding controls, brief on-screen feedback and visible keyboard focus. |
 
 ## Supported formats
@@ -128,13 +128,14 @@ the Windows Media Foundation components, which Windows N editions may lack.
 | **JPEG XL** | Still and animated, converted to sRGB. A 12 MP photo needs about 330 MB while it decodes. |
 | **SVG / SVGZ** | Drawn at the size your view needs. Only images embedded as `data:` URLs are used; no file, network or script access. |
 | **Camera RAW** | The full-size JPEG preview that the camera stored in the file (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF and similar). The raw sensor data is not developed. |
-| **DDS** | The first (largest) picture of a texture: BC1 to BC5 and BC7 (DXT1 to DXT5, ATI1/ATI2, DX10 headers), and uncompressed RGB, RGBA, luminance and alpha layouts. BC6H and floating point textures show a clear error. |
+| **DDS** | The first (largest) picture of a texture: BC1 to BC5 and BC7 (DXT1 to DXT5, ATI1/ATI2, DX10 headers), uncompressed RGB, RGBA, luminance and alpha layouts, and 8 bit palettized textures. BC6H and floating point textures show a clear error. |
 | **TGA, PNM, QOI, HDR, EXR, farbfeld** | Still image. Float formats are tone-mapped to sRGB. |
 | **MP4 / M4V, MOV, MKV** | Through Windows codecs; H.264/AAC is tested |
 | **WebM** | Plays if a Windows codec is installed, otherwise shows a clear error |
 
 Formats are detected from file content; the extension decides only for formats
-without a signature (TGA, SVG, RAW). Every image format is decoded inside Kova
+without a signature (TGA, SVG, RAW). A file with an image extension and a valid
+TGA header opens as a TGA, so game textures named `.png` or `.dds` still work. Every image format is decoded inside Kova
 Image, so none depends on a Windows codec or an installed extension. HDR (PQ or
 HLG) AVIF and HEIC pictures are shown as stored, not tone-mapped. Videos must be
 self-contained local files; streaming, subtitles and DRM are out of scope. See

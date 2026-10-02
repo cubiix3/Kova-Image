@@ -78,7 +78,7 @@ camera stored in the file and the Exif block of the container (orientation,
 camera). The scan validates the JPEG structure and refuses lossless JPEG and
 files over 1 GiB (`MAX_RAW_FILE_BYTES`; the file is read through seeks).
 
-**DDS** is read by own code (`src/codecs/dds.rs`), because the crate's decoder covers only DXT1/3/5 and game textures use more: BC1 to BC5 and BC7, and uncompressed layouts described by channel masks. It reads the data strip by strip, so memory is the RGBA result only. The BC7 partition tables were extracted from [bcdec](https://github.com/iOrange/bcdec) (MIT or Unlicense, Sergii Kudlai), and the decoder is tested against bcdec's output for random blocks of all eight modes (`scripts/bc7-reference.py`, fixtures `tests/fixtures/bc7.*`); bcdec itself is not part of the program. BC6H, floating point and 16-bit formats are not supported.
+**DDS** is read by own code (`src/codecs/dds.rs`), because the crate's decoder covers only DXT1/3/5 and game textures use more: BC1 to BC5 and BC7, uncompressed layouts described by channel masks, and 8 bit palettized textures. It reads the data strip by strip, so memory is the RGBA result only. The BC7 partition tables were extracted from [bcdec](https://github.com/iOrange/bcdec) (MIT or Unlicense, Sergii Kudlai), and the decoder is tested against bcdec's output for random blocks of all eight modes (`scripts/bc7-reference.py`, fixtures `tests/fixtures/bc7.*`); bcdec itself is not part of the program. BC6H, floating point and 16-bit formats are not supported.
 
 **HEIC/HEIF** is decoded by own code in `src/codecs/hevc` (about 4,300 lines,
 intra pictures only), described in the next section.

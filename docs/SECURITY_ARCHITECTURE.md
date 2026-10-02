@@ -65,7 +65,10 @@ each request inside `catch_unwind`. It is loaded into the Shell's isolated
 thumbnail host, not into Explorer itself, so a crash affects thumbnails only.
 It performs no network access and reads no file beyond the stream it is given,
 except that an SVG with text makes it load the installed system fonts. It
-writes no cache of its own. It adds a second, separate attack surface compared with
+writes no cache of its own. For PNG, JPEG, GIF, BMP, TIFF and ICO files whose content matches their
+extension it loads Windows' own photo thumbnail provider in the same host and
+passes the stream on; the decoding of such a file is then Windows' and not Kova's.
+It adds a second, separate attack surface compared with
 the viewer: untrusted files are decoded by every program that shows previews
 after registration, without the user opening them. `--unregister-thumbnails`
 removes it.
