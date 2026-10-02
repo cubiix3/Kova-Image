@@ -47,8 +47,10 @@ was handled. Do not label repeated launches "cold startup".
 Current automated tooling covers per-format decode, first-render/startup/RAM,
 and GIF CPU/private-memory sampling while playing, paused and minimized.
 Cached-vs-uncached end-to-end navigation, long-session RAM and truly
-cold startup still need a dedicated benchmark harness. AVIF cannot be measured
-until its decoder is implemented. No performance superiority is claimed.
+cold startup still need a dedicated benchmark harness. The new image formats
+were measured once on a 12 MP generated picture; see
+[MEASUREMENTS.md](MEASUREMENTS.md#image-formats-added-2026-10). No performance
+superiority is claimed.
 
 ## Visual/interaction verification
 

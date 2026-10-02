@@ -14,15 +14,19 @@ the installed Visual Studio environment:
 ```powershell
 cargo build --locked
 cargo fmt --all -- --check
-cargo check --locked --all-targets
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+cargo check --locked --workspace --all-targets
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
 cargo build --locked --release --bin kova-image
+cargo build --locked --release -p kova-thumbnails
 ```
 
 Use `cargo fmt --all` before submitting. Add meaningful tests for changes to
 decoding, navigation, cancellation, memory limits or animation semantics.
-Fixtures should be generated, small and free to redistribute. Never commit
+Fixtures should be generated, small and free to redistribute. The image fixtures
+come from `scripts/image-fixtures.py` (Pillow and a developer-installed ffmpeg;
+the application and CI never need an encoder) and the HEVC reference corpus from
+`scripts/hevc-reference.py`. Never commit
 build outputs, real personal images, private paths, credentials or machine state.
 
 ## Pull requests

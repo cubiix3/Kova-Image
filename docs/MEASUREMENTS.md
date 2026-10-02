@@ -56,6 +56,42 @@ Portable ZIP size depends on the included documentation/license bundle.
 Long-session navigation, diverse animations, truly cold launches, clean-machine
 runtime dependencies, slower GPUs and older Windows hardware remain unmeasured.
 
+## Image formats added, 2026-10
+
+Release build, same machine as above, `kova-bench` (file open + decode, one
+process per file, no OS cache reset) and the peak working set polled every 5 ms
+from outside. The pictures are generated: one synthetic 4000 x 3000 image (smooth
+noise at several scales plus ellipses) encoded as each format with ffmpeg
+(libjxl distance 1, libaom `-crf 30 -cpu-used 8`, libx265 `crf=22`) and Pillow
+(JPEG quality 88, WebP quality 85), and a 1600 x 1200 SVG with 1,500 translucent
+circles. This is one picture, not a corpus: real photographs differ.
+
+| Format | File | Fit to 1920 x 1080: decoded | ms | Peak working set | Full size: ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| JPEG | 2.4 MB | 1440 x 1080 | 70 | 43 MB | 48 |
+| WebP | 1.4 MB | 1440 x 1080 | 249 | 85 MB | 208 |
+| JPEG XL | 1.8 MB | 1440 x 1080 | 496 | 327 MB | 461 |
+| AVIF (AV1, 4:2:0) | 0.56 MB | 1440 x 1080 | 356 | 76 MB | 323 |
+| HEIC (HEVC intra, 4:2:0) | 1.6 MB | 1440 x 1080 | 585 | 85 MB | 549 |
+| SVG | 0.17 MB | 1440 x 1080 | 121 | 12 MB | 250 (2048 x 1536) |
+
+DDS textures of 4000 x 3000 (files built from repeated test blocks, so they say
+nothing about image content) decoded in 94 ms (BC7), 38 ms (DXT5, which is BC3) and
+74 ms (uncompressed 32 bit) at full size, and in 125, 69 and 105 ms when fitted
+to 1920 x 1080 (the shrinking is included).
+
+JPEG XL needs the most memory because jxl-oxide holds 32-bit float planes; a first
+attempt with the 256 MiB decoder allowance failed on this 12 MP file, which is why
+JPEG XL has its own 512 MiB allowance. Neither the AV1 decoder (no assembly) nor
+the HEVC decoder (own code, one thread, no SIMD) is fast compared with the
+native decoders other viewers use; both are bounded and stay in the range of a
+third to half a second for a 12 MP photo. An isolated 4000 x 3000 AV1 decode took
+315 ms on one thread and 83 ms on four; the viewer uses one. The 32 x 24 test
+fixtures decode in well under a millisecond. With `--measure` (process start to
+the first completed render, hardware renderer, one launch each, installed build)
+the same pictures gave 802 ms (HEIC), 355 ms (AVIF), 505 ms (JPEG XL) and 179 ms
+(SVG). Explorer thumbnail times were not measured.
+
 ## Natural folder sorting, 2026-09-22
 
 In one release-mode process, 100,000 generated names in a deterministic mixed

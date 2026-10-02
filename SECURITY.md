@@ -22,11 +22,15 @@ No response-time guarantee is made during early development.
 
 ## Scope and boundaries
 
-Every opened JPEG, PNG/APNG, GIF, WebP, BMP, TIFF, ICO and MP4/MOV/WebM/MKV
-video is **untrusted input**.
+Every opened image (JPEG, PNG/APNG, GIF, WebP, BMP, TIFF, ICO, AVIF, HEIC/HEIF,
+JPEG XL, SVG, camera RAW, TGA, PNM, QOI, DDS, HDR, EXR and farbfeld) and every
+MP4/MOV/WebM/MKV video is **untrusted input**. If you enable Explorer previews,
+the thumbnail provider decodes such files for every program that shows
+thumbnails, without the user opening them.
 Decoder failures, parser bugs, overflow, memory exhaustion, animation corruption,
 file races and unintended file changes are security-relevant. Unsupported
-formats are rejected; SVG, external resources and scripts are never executed.
+formats are rejected. SVG is drawn without scripts, animation or access to other
+files and the network; only images embedded as `data:` URLs are used.
 There is no application networking, telemetry or automatic upload path.
 
 Input size, dimensions, decoded animation storage, cache size and request queues
