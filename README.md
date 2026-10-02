@@ -44,12 +44,10 @@ and official Windows APIs**. It is a sibling of
 [Kova Screen](https://github.com/cubiix3/Kova-Screen).
 
 > [!NOTE]
-> **Early development, version 0.1.0.** Kova Image is ready to try, with known
+> **Early development, version 0.2.0.** Kova Image is ready to try, with known
 > limitations. Release builds are unsigned, so Windows SmartScreen warns on
 > first run. See the [validation record](docs/VALIDATION.md) for what has been
-> tested. The latest release predates some features described here (large-photo
-> support, sort options, slideshow, transparency grid, the additional image
-> formats and the Explorer previews); build `main` to try them.
+> tested.
 
 ## Highlights
 
