@@ -1,6 +1,6 @@
 # Windows build and release preparation
 
-Version: 0.1.0, Early Development. The executable embeds ProductName, version,
+Version: 0.2.0, Early Development. The executable embeds ProductName, version,
 description and the Kova icon. The manifest declares `asInvoker`, long-path
 awareness and PerMonitorV2 DPI. No elevation or automatic association changes.
 
