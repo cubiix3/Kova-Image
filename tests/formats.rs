@@ -698,7 +698,13 @@ fn a_tga_that_is_named_like_another_image_is_still_a_tga() {
     .write_to(&mut tga, image::ImageFormat::Tga)
     .unwrap();
     let temp = Temp::new();
-    for name in ["texture.dds", "texture.png", "texture.webp", "texture.tga"] {
+    for name in [
+        "texture.dds",
+        "texture.png",
+        "texture.webp",
+        "texture.tga",
+        "texture.dng",
+    ] {
         let image = load(&temp.write(name, tga.get_ref())).unwrap();
         assert_eq!(
             (image.format, image.width, image.height),

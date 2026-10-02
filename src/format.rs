@@ -225,7 +225,9 @@ pub fn sniff(head: &[u8], extension: Option<&str>) -> Option<Format> {
         return None;
     }
     // A RAW file starts like a TIFF, so its extension must win over the signature.
-    if is(extension, RAW_EXTENSIONS) {
+    // No RAW container starts like a TGA header (its second byte is 0 or 1), so a
+    // TGA with a RAW extension is not mistaken for one.
+    if is(extension, RAW_EXTENSIONS) && !is_tga_header(head) {
         return Some(Format::Raw);
     }
     if is(extension, &["svgz"]) && head.starts_with(&[0x1f, 0x8b]) {
@@ -315,6 +317,17 @@ mod tests {
         tga[16] = 32;
         assert_eq!(sniff(&tga, Some("dds")), Some(Format::Tga));
         assert_eq!(sniff(&tga, Some("png")), Some(Format::Tga));
+        // Also under a camera RAW extension, whose own files start like a TIFF.
+        assert_eq!(sniff(&tga, Some("arw")), Some(Format::Tga));
+        assert_eq!(sniff(&tga, Some("DNG")), Some(Format::Tga));
+        assert_eq!(
+            sniff(b"II*\0\x08\0\0\0\0\0\0\0\0\0\0\0\0\0", Some("arw")),
+            Some(Format::Raw)
+        );
+        assert_eq!(
+            sniff(b"FUJIFILMCCD-RAW 0201", Some("raf")),
+            Some(Format::Raw)
+        );
         // Only files that claim to be images, so other kinds are not guessed at.
         assert_eq!(sniff(&tga, Some("dat")), None);
         assert_eq!(sniff(&tga, None), None);
