@@ -6,12 +6,19 @@
 //! (`kova_image::decoder`), with the same limits: untrusted file, bounded size
 //! and pixels, no network, nothing written.
 //!
+//! For the formats Windows previews well itself (PNG, JPEG, GIF, BMP, TIFF, ICO)
+//! the provider passes a file whose content matches its extension on to
+//! Windows' own photo thumbnail provider, so those previews stay exactly as
+//! they were. It decodes them itself only when the content is something else
+//! (a TGA named `.png`, say) or when Windows cannot read the file.
+//!
 //! The provider is registered per user by `kova-image.exe --register-thumbnails`
 //! (see `kova_image::windows_integration::thumbnails`). It exports only the two
 //! entry points COM needs, and never lets a panic reach the host.
 use kova_image::{
-    decoder::{self, Decoded, Source, Target},
+    decoder::{self, Decoded, Format, Source, Target},
     error::Error as ImageError,
+    format,
     security::Generation,
     windows_integration::thumbnails::CLSID,
 };
@@ -33,13 +40,14 @@ use windows::{
             BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateDIBSection, DIB_RGB_COLORS, HBITMAP,
         },
         System::Com::{
-            CoTaskMemFree, IClassFactory, IClassFactory_Impl, IStream, STATFLAG_DEFAULT, STATSTG,
-            STREAM_SEEK_CUR, STREAM_SEEK_END, STREAM_SEEK_SET,
+            CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree, IClassFactory,
+            IClassFactory_Impl, IStream, STATFLAG_DEFAULT, STATSTG, STGM_READ, STREAM_SEEK_CUR,
+            STREAM_SEEK_END, STREAM_SEEK_SET,
         },
         UI::Shell::{
             IThumbnailProvider, IThumbnailProvider_Impl,
             PropertiesSystem::{IInitializeWithStream, IInitializeWithStream_Impl},
-            WTS_ALPHATYPE, WTSAT_ARGB,
+            WTS_ALPHATYPE, WTSAT_ARGB, WTSAT_UNKNOWN,
         },
     },
     core::{BOOL, GUID, HRESULT, IUnknown, Interface, Ref, Result, implement},
@@ -48,6 +56,24 @@ use windows::{
 /// Largest preview Explorer ever asks for is 1024; refuse nothing, but never
 /// build a bitmap larger than this.
 const MAX_SIDE: u32 = 4096;
+
+/// Windows' own thumbnail provider for pictures (`PhotoMetadataHandler.dll`),
+/// the one Explorer uses for PNG and JPEG when nothing else is registered.
+const WINDOWS_PHOTO_PROVIDER: GUID = GUID::from_u128(0xC7657C4A_9F68_40FA_A4DF_96BC08EB3551);
+
+/// Whether Windows' provider reads a file of this extension and content. Only
+/// then is the file handed to it; APNG, for instance, is not.
+fn windows_reads(extension: &str, content: Format) -> bool {
+    matches!(
+        (extension.to_ascii_lowercase().as_str(), content),
+        ("png", Format::Png)
+            | ("jpg" | "jpeg" | "jpe", Format::Jpeg)
+            | ("gif", Format::Gif)
+            | ("bmp", Format::Bmp)
+            | ("tif" | "tiff", Format::Tiff)
+            | ("ico", Format::Ico)
+    )
+}
 
 /// A COM stream as a reader the decoder can use.
 struct StreamSource(IStream);
@@ -114,16 +140,62 @@ impl IThumbnailProvider_Impl for Provider_Impl {
             .clone()
             .ok_or(E_UNEXPECTED)?;
         // A panic must not unwind into the host.
-        let made = catch_unwind(AssertUnwindSafe(|| {
-            render(&stream, side.clamp(16, MAX_SIDE))
+        let (made, kind) = catch_unwind(AssertUnwindSafe(|| {
+            let side = side.clamp(16, MAX_SIDE);
+            match delegate(&stream, side) {
+                Some(done) => Ok(done),
+                None => render(&stream, side).map(|bitmap| (bitmap, WTSAT_ARGB)),
+            }
         }))
         .map_err(|_| E_FAIL)??;
         // SAFETY: both pointers were checked and are valid for writes by contract.
         unsafe {
             *bitmap = made;
-            *alpha = WTSAT_ARGB;
+            *alpha = kind;
         }
         Ok(())
+    }
+}
+
+/// The first bytes of the stream, which is left at the start.
+fn head(stream: &IStream) -> Option<Vec<u8>> {
+    // SAFETY: plain COM call on a live stream.
+    unsafe { stream.Seek(0, STREAM_SEEK_SET, None) }.ok()?;
+    let mut bytes = vec![0u8; format::SNIFF_BYTES];
+    let mut source = StreamSource(stream.clone());
+    let mut filled = 0;
+    while filled < bytes.len() {
+        match source.read(&mut bytes[filled..]) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => filled += n,
+        }
+    }
+    bytes.truncate(filled);
+    // SAFETY: as above.
+    unsafe { stream.Seek(0, STREAM_SEEK_SET, None) }.ok()?;
+    Some(bytes)
+}
+
+/// Asks Windows' own provider for the preview when it reads this kind of file.
+/// `None` means: decode it here.
+fn delegate(stream: &IStream, side: u32) -> Option<(HBITMAP, WTS_ALPHATYPE)> {
+    let (_, extension) = describe(stream).ok()?;
+    let extension = extension?;
+    let content = format::sniff(&head(stream)?, Some(&extension))?;
+    if !windows_reads(&extension, content) {
+        return None;
+    }
+    // SAFETY: activation of a system class and plain calls on the objects it
+    // returns; the bitmap handle is owned by the caller afterwards.
+    unsafe {
+        let inner: IThumbnailProvider =
+            CoCreateInstance(&WINDOWS_PHOTO_PROVIDER, None, CLSCTX_INPROC_SERVER).ok()?;
+        let init: IInitializeWithStream = inner.cast().ok()?;
+        init.Initialize(stream, STGM_READ.0).ok()?;
+        let mut bitmap = HBITMAP::default();
+        let mut kind = WTSAT_UNKNOWN;
+        inner.GetThumbnail(side, &mut bitmap, &mut kind).ok()?;
+        (!bitmap.is_invalid()).then_some((bitmap, kind))
     }
 }
 
@@ -278,4 +350,21 @@ pub unsafe extern "system" fn DllGetClassObject(
 #[unsafe(no_mangle)]
 pub extern "system" fn DllCanUnloadNow() -> HRESULT {
     S_FALSE
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_is_asked_only_for_content_it_reads() {
+        assert!(windows_reads("PNG", Format::Png));
+        assert!(windows_reads("jpe", Format::Jpeg));
+        assert!(windows_reads("tiff", Format::Tiff));
+        // A TGA named .png, a PNG named .jpg and APNG are decoded here.
+        assert!(!windows_reads("png", Format::Tga));
+        assert!(!windows_reads("jpg", Format::Png));
+        assert!(!windows_reads("apng", Format::Png));
+        assert!(!windows_reads("webp", Format::WebP));
+    }
 }

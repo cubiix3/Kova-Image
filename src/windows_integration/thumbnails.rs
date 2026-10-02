@@ -41,15 +41,12 @@ pub const DLL_NAME: &str = "kova_thumbnails.dll";
 /// and `codecs/dds.rs` reads the same formats (BC1 to BC7, uncompressed).
 const REPLACED: &[&str] = &["dds"];
 
-/// Extensions of the formats Kova Image reads that Windows does not preview on
-/// its own installation. JPEG, PNG, GIF, BMP, TIFF and ICO are left to Windows.
+/// Every extension of the formats Kova Image reads. For JPEG, PNG, GIF, BMP,
+/// TIFF and ICO the provider hands a file that Windows can read to Windows' own
+/// provider, so those previews stay as they are and only files that Windows
+/// cannot read (a TGA named `.png`) are decoded here.
 pub fn extensions() -> impl Iterator<Item = &'static str> {
-    format::IMAGE_EXTENSIONS.iter().copied().filter(|e| {
-        !matches!(
-            *e,
-            "jpg" | "jpeg" | "jpe" | "png" | "apng" | "gif" | "bmp" | "tif" | "tiff" | "ico"
-        )
-    })
+    format::IMAGE_EXTENSIONS.iter().copied()
 }
 
 /// The default text value of a key, or `None` when there is none.
@@ -276,14 +273,15 @@ fn notify() {
 mod tests {
     use super::*;
     #[test]
-    fn jpeg_and_png_are_left_to_windows_and_new_formats_are_not() {
+    fn every_image_extension_is_registered() {
         let all: Vec<_> = extensions().collect();
-        for left in ["jpg", "png", "gif", "bmp", "tif", "ico"] {
-            assert!(!all.contains(&left), "{left}");
+        for name in [
+            "jpg", "png", "gif", "bmp", "tif", "ico", "webp", "avif", "jxl", "svg", "qoi", "tga",
+            "exr", "arw", "apng", "dds",
+        ] {
+            assert!(all.contains(&name), "{name}");
         }
-        for added in ["webp", "avif", "jxl", "svg", "qoi", "tga", "exr", "arw"] {
-            assert!(all.contains(&added), "{added}");
-        }
+        assert_eq!(all.len(), format::IMAGE_EXTENSIONS.len());
     }
     #[test]
     fn environment_variables_in_registry_paths_are_expanded() {
