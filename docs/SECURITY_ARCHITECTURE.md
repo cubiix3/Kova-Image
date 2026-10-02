@@ -7,7 +7,9 @@
 | Compressed image file | 128 MiB |
 | Width or height | 32,768 pixels |
 | Pixel count | 33,554,432 pixels; JPEG up to 67,108,864 (3 bytes per pixel, shrunk before widening to RGBA). No retained bitmap exceeds 33,554,432 pixels |
-| Decoder allocation allowance | 256 MiB, where the codec honors image-rs Limits |
+| Decoder allocation allowance | 256 MiB, where the codec honors image-rs Limits. JPEG XL has its own 512 MiB allowance (32-bit float planes); a larger picture ends in a memory error |
+| Camera RAW file | 1 GiB, read through seeks for the embedded preview only |
+| SVG | 16 MiB (also after gunzip); drawn at most 8,192 pixels a side; embedded `data:` images 64 Mi pixels in total |
 | Stored animation RGBA | 128 MiB, with space reserved for the next frame |
 | Animation frame count | Fewer than 2,000 frames |
 | Retained cache pixel data | 192 MiB / at most 32 entries |
@@ -28,10 +30,45 @@ These numbers are admission limits, not a measured upper bound on all process RA
 
 ## File and execution boundary
 
-Images use compiled-in image-rs format adapters; magic bytes choose among
-them. Videos use the separate native boundary documented below. No Shell thumbnail codecs, user plugins, downloaded codecs or browser
-rendering are invoked. SVG and other unsupported data are rejected. Slint's
-SVG machinery renders the trusted built-in Kova logo only.
+Images use compiled-in decoders, which are the image-rs format adapters and
+the modules in `src/codecs` (JPEG XL, SVG, camera RAW, AVIF and HEIC); content
+(`src/format.rs`) chooses among them, and the extension decides only for formats
+without a signature (TGA, SVG, RAW). Videos use the separate native boundary
+documented below. No Shell thumbnail codecs, user plugins, downloaded codecs or
+browser rendering are invoked.
+
+- **SVG** is drawn by resvg, never by Slint (whose SVG machinery renders only the
+  trusted built-in Kova logo). Only `data:` images are loaded; links to files or
+  URLs, external stylesheets, scripts and animation are not followed or run, so
+  opening an SVG cannot read another file or touch the network.
+- **Camera RAW** is never developed. The file is scanned for JPEG streams, whose
+  structure is checked before decoding (baseline and progressive only), and the
+  largest one is shown.
+- **AVIF** runs rav1d on a dedicated thread with a frame size limit. The vendored
+  copy declares its C ABI `C-unwind`, so a panic is caught, the decoder is
+  abandoned and the request ends in an error; the process survives.
+- **HEIC** is decoded by Kova Image's own HEVC intra decoder
+  (`src/codecs/hevc`). Every read is bounds checked; picture dimensions are
+  checked against the pixel limits and the decode budget, and the NAL unit count
+  is limited, before pictures are allocated; unsupported tools end in an error. A test flips bits in a stream corpus and demands error rather than
+  panic. This is hand-written parsing of untrusted data in safe Rust, but it has
+  had no external fuzzing.
+- **JPEG XL** runs inside jxl-oxide's allocation tracker.
+
+## Explorer thumbnail provider
+
+`kova_thumbnails.dll` is loaded by Explorer, the file dialogs and other programs
+that ask the Shell for thumbnails, only if the user registered it. It holds the
+same decoders and limits as the viewer, receives the file as an `IStream`
+(never a path), decodes at the size asked for (at most 4,096 pixels) and runs
+each request inside `catch_unwind`. It is loaded into the Shell's isolated
+thumbnail host, not into Explorer itself, so a crash affects thumbnails only.
+It performs no network access and reads no file beyond the stream it is given,
+except that an SVG with text makes it load the installed system fonts. It
+writes no cache of its own. It adds a second, separate attack surface compared with
+the viewer: untrusted files are decoded by every program that shows previews
+after registration, without the user opening them. `--unregister-thumbnails`
+removes it.
 
 On Windows, file handles deny concurrent writes/deletion, open reparse points
 without following them, and reject reparse-point image handles. The exception is

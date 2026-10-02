@@ -26,6 +26,19 @@ flowchart LR
     Shell --> Win32[Dialog / clipboard / recycle / Explorer]
 ```
 
+Decoders live in `src/decoder.rs` (dispatch, orientation, colour, fitting) and
+`src/codecs` (JPEG XL, SVG, camera RAW, AVIF, HEIC). `src/format.rs` identifies a
+file from its first 2,048 bytes; the extension decides only for formats without a
+signature. Formats the `image` crate reads go through `image_pending`; the others
+return the same `Pending` value from `codecs::decode`, and `finish` then applies
+orientation, fitting, sRGB conversion and the alpha check, so every format takes
+the same last steps. AVIF and HEIC share `isobmff.rs` and `heif.rs` (container,
+grids, alpha, rotation) and `yuv.rs` (YUV to RGB); AV1 is decoded by rav1d on a
+short-lived thread of its own and HEVC by `codecs/hevc`, whose stages are bit
+reading, parameter sets, slice headers, CABAC, coding tree, intra prediction,
+inverse transforms and the deblocking and SAO filters. Decoders take a
+`decoder::Source` (read and seek) so they work on a file and on a Shell stream.
+
 The foreground request increments a shared generation and replaces pending
 work. Cancellable reads and per-frame checks stop old work where possible.
 Only the matching generation can update the view. Preload ordering is next,
@@ -75,6 +88,16 @@ Windows APIs are wrapped locally; Shell objects live on an STA worker. Each
 launch owns its window and workers. There is no daemon, mutex protocol, IPC,
 network client or single-instance dependency. Shutdown cancels pending work and
 does not block the UI waiting for a non-cooperative decoder to finish.
+
+## Explorer previews
+
+The workspace member `crates/thumbnail` builds `kova_thumbnails.dll`, a COM
+in-process server for `IThumbnailProvider` and `IInitializeWithStream`. It links
+the `kova_image` library, so it uses `decoder::load_stream` and the same format
+code as the viewer; nothing is duplicated. It is registered per user by
+`windows_integration::thumbnails` (HKCU only) and is not loaded unless
+registered. See [FILE_ASSOCIATIONS.md](FILE_ASSOCIATIONS.md#explorer-previews)
+and [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md#explorer-thumbnail-provider).
 
 ## Local video
 

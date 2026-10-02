@@ -69,8 +69,19 @@ captures are published in documentation. See [DESIGN.md](DESIGN.md).
 - Display-sized retention is implemented after the codec's full canvas decode.
   Codec-level progressive or DCT-scaled decode is not. Animation shows its first
   fitted frame while later frames are still collected.
-- AVIF, HEIC/HEIF, JPEG XL, SVG and RAW are absent. AVIF's official decoder
-  needs a system dav1d or a Meson build, which the locked toolchain does not provide.
+- AVIF, HEIC/HEIF, JPEG XL, SVG, camera RAW and the rarer formats (TGA, PNM,
+  QOI, DDS, HDR, EXR, farbfeld) are decoded by Kova Image itself and tested
+  with small generated fixtures (`tests/fixtures`, `scripts/image-fixtures.py`).
+  Limits: animated AVIF/HEIC sequences are not shown, HDR (PQ/HLG) pictures
+  are shown as stored, RAW shows the embedded JPEG
+  preview rather than developed sensor data, and HEIC covers HEVC intra
+  pictures only (see [DEPENDENCIES.md](DEPENDENCIES.md#hevc-and-patents)).
+  The HEVC decoder was compared bit for bit with ffmpeg on a generated corpus
+  and with damaged streams; real phone and camera files have been tried by hand
+  only. The Explorer preview provider was checked through the real Shell on
+  WebP, SVG, AVIF, JPEG XL and RAW files (`cargo test -p kova-thumbnails --
+  --ignored`; it changes the HKCU registration, so run it on a development
+  machine and register again afterwards).
 - Embedded ICC profiles are converted to sRGB. Monitor profiles, HDR and a wide
   color corpus are not. Fuzzing and decoder process isolation remain future work.
 - Cache budgets do not include every decoder scratch allocation, copied renderer
@@ -123,7 +134,8 @@ external references, compressed/reference movie rejection, box lengths and depth
 See [VIDEO.md](VIDEO.md) for repeatable commands and native limitations.
 
 Per-user registration was run from a permanent local Programs folder and read
-back with `scripts/associations-smoke.ps1`: all 16 capabilities, quoted ProgID
+back with `scripts/associations-smoke.ps1` (at that time 16 capabilities; the
+script now lists every advertised extension and has not been run since): quoted ProgID
 commands, OpenWith entries and RegisteredApplications were present. Existing
 UserChoice ProgID/hash values stayed unchanged. This verifies registration on
 the development machine, not every Explorer/default-picker behavior on clean

@@ -7,14 +7,16 @@ Keep the viewer-only scope. The nested `Kova-Screen/` checkout is an independent
 
 - `README.md`, `CONTRIBUTING.md`: product scope, build and contribution expectations.
 - `docs/ARCHITECTURE.md`, `docs/SECURITY_ARCHITECTURE.md`: concurrency, decoding and safety.
-- `src/`: coordination, decoders, animation, cache, navigation, Windows integration and video.
+- `src/`: coordination, decoders (`src/codecs`: JPEG XL, SVG, RAW, AVIF, HEIC), animation, cache, navigation, Windows integration and video.
+- `crates/thumbnail/`: the optional Explorer thumbnail provider DLL; it reuses the library's decoders.
 - `ui/`: Slint interface. `tests/`: regression fixtures/tests.
 - `scripts/cargo-msvc.ps1`: Visual Studio environment wrapper.
 - Use the pinned toolchain in `rust-toolchain.toml` and Windows MSVC with a Windows SDK.
 
 ## Architecture and invariants
 
-- Decoders do not import Slint; the UI does not parse image files.
+- Decoders do not import Slint; the UI does not parse image files. Every image format is decoded inside Kova Image, not through a Windows codec.
+- A new format needs content identification in `src/format.rs`, fixtures, a memory bound and the dependency review in `docs/DEPENDENCIES.md`.
 - Retain one decode worker, a latest-request slot, bounded results and a weighted cache.
 - Only the current generation updates the view. Cancellation is cooperative; never kill a codec thread.
 - Keep the previous image visible while loading; destructive/copy actions require displayed and requested paths to match.

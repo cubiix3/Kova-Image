@@ -48,7 +48,8 @@ and official Windows APIs**. It is a sibling of
 > limitations. Release builds are unsigned, so Windows SmartScreen warns on
 > first run. See the [validation record](docs/VALIDATION.md) for what has been
 > tested. The latest release predates some features described here (large-photo
-> support, sort options, slideshow, transparency grid); build `main` to try them.
+> support, sort options, slideshow, transparency grid, the additional image
+> formats and the Explorer previews); build `main` to try them.
 
 ## Highlights
 
@@ -57,6 +58,7 @@ and official Windows APIs**. It is a sibling of
 | ⚡ **Instant navigation** | The current image always wins. Once you pause on a picture, the next two files in your direction of travel are decoded in advance. |
 | 🎞️ **Animations and video** | GIF, APNG and animated WebP with correct timing and loops. Local MP4, MOV and MKV through Windows Media Foundation. |
 | 🎨 **Real color** | Embedded ICC profiles are converted to sRGB. EXIF orientation is applied automatically. |
+| 📦 **Formats built in** | WebP, AVIF, HEIC, JPEG XL, SVG, camera RAW, DDS, TGA and more open without any Windows codec or extension, and Explorer can show their thumbnails. See [Supported formats](#supported-formats). |
 | 🧠 **Bounded memory** | Images are decoded at the size your view needs, and the cache is capped at 192 MiB of pixels. Photos up to 64 megapixels open without a full-size RGBA copy. |
 | 🛡️ **Careful with files** | Every file is treated as untrusted. Deleting goes to the Recycle Bin, and `Ctrl+Z` brings it back. |
 | 🪟 **At home on Windows** | Per-user install, Open with registration, high contrast and reduced motion follow your system settings. |
@@ -110,6 +112,7 @@ the Windows Media Foundation components, which Windows N editions may lack.
 | **Animation** | Pause and resume, per-frame timing, loop counts, and the first frame appears while the rest decodes. |
 | **Video** | Play/pause, timeline, elapsed and total time, volume, mute and optional looping. Video keeps playing while you drag the window. |
 | **Windows actions** | Copy the image, the file itself or its path, move to the Recycle Bin and undo, Show in Explorer, Open with. Cloud-sync placeholders (OneDrive and similar) are accepted; this is not yet tested against a live provider. |
+| **Explorer previews** | Per user, an installer task that is on by default, also in the menu (**Show previews in Explorer**, or `kova-image.exe --register-thumbnails`). Explorer and the file dialogs then show thumbnails for the formats Windows cannot preview itself, such as WebP, AVIF, HEIC, JPEG XL, SVG and camera RAW, and never take over an extension whose preview still works. It does replace a preview provider whose DLL no longer exists (the leftover of an uninstalled program) and, because texture tools register their own, the DDS provider. It uses `kova_thumbnails.dll`, which carries the same decoders and limits; **Remove Explorer previews** (or `--unregister-thumbnails`) removes it again. |
 | **Interface** | Dark, compact chrome, fullscreen, auto-hiding controls, brief on-screen feedback and visible keyboard focus. |
 
 ## Supported formats
@@ -122,11 +125,20 @@ the Windows Media Foundation components, which Windows N editions may lack.
 | **WebP** | Still and animated |
 | **BMP, ICO** | Still image |
 | **TIFF** | First page |
+| **AVIF** | Still images (AV1), 8 to 12 bit, with alpha, grids, rotation and mirroring. Animated sequences are not shown. |
+| **HEIC / HEIF** | Still images (HEVC intra pictures), 8 to 12 bit, 4:0:0 to 4:4:4, with alpha, grids, rotation and mirroring. Pictures that use inter prediction, several tiles or the rarer range extension tools show a clear error. See the [patent note](docs/DEPENDENCIES.md#hevc-and-patents). |
+| **JPEG XL** | Still and animated, converted to sRGB. A 12 MP photo needs about 330 MB while it decodes. |
+| **SVG / SVGZ** | Drawn at the size your view needs. Only images embedded as `data:` URLs are used; no file, network or script access. |
+| **Camera RAW** | The full-size JPEG preview that the camera stored in the file (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF and similar). The raw sensor data is not developed. |
+| **DDS** | The first (largest) picture of a texture: BC1 to BC5 and BC7 (DXT1 to DXT5, ATI1/ATI2, DX10 headers), and uncompressed RGB, RGBA, luminance and alpha layouts. BC6H and floating point textures show a clear error. |
+| **TGA, PNM, QOI, HDR, EXR, farbfeld** | Still image. Float formats are tone-mapped to sRGB. |
 | **MP4 / M4V, MOV, MKV** | Through Windows codecs; H.264/AAC is tested |
 | **WebM** | Plays if a Windows codec is installed, otherwise shows a clear error |
-| AVIF, HEIC/HEIF, JPEG XL, SVG, RAW | Not supported yet ([roadmap](#roadmap)) |
 
-Formats are detected from file content, not only the extension. Videos must be
+Formats are detected from file content; the extension decides only for formats
+without a signature (TGA, SVG, RAW). Every image format is decoded inside Kova
+Image, so none depends on a Windows codec or an installed extension. HDR (PQ or
+HLG) AVIF and HEIC pictures are shown as stored, not tone-mapped. Videos must be
 self-contained local files; streaming, subtitles and DRM are out of scope. See
 the [video architecture](docs/VIDEO.md) for details.
 
@@ -166,15 +178,19 @@ to Rust 1.95.0 (MSVC) in `rust-toolchain.toml`.
 git clone https://github.com/cubiix3/Kova-Image.git
 cd Kova-Image
 .\scripts\cargo-msvc.ps1 build --locked --release --bin kova-image
+.\scripts\cargo-msvc.ps1 build --locked --release -p kova-thumbnails
 ```
+
+The second command builds `kova_thumbnails.dll`, the optional Explorer preview
+provider; the viewer runs without it.
 
 `cargo-msvc.ps1` finds Visual Studio and loads its build environment for you.
 Before opening a pull request, run the same checks as CI:
 
 ```powershell
 .\scripts\cargo-msvc.ps1 fmt --all -- --check
-.\scripts\cargo-msvc.ps1 clippy --locked --all-targets -- -D warnings
-.\scripts\cargo-msvc.ps1 test --locked
+.\scripts\cargo-msvc.ps1 clippy --locked --workspace --all-targets -- -D warnings
+.\scripts\cargo-msvc.ps1 test --locked --workspace
 ```
 
 Packaging and the installer are described in
@@ -227,12 +243,12 @@ privately through GitHub Security Advisories.
 
 ## Roadmap
 
-- [ ] [AVIF](https://github.com/cubiix3/Kova-Image/issues/3), once it can ship without a system codec or a network build
 - [ ] [DCT-scaled JPEG decoding](https://github.com/cubiix3/Kova-Image/issues/4) for photos beyond 64 MP, and measurements on real photo folders
 - [ ] [Fuzzing and stronger file identity checks](https://github.com/cubiix3/Kova-Image/issues/6)
 - [ ] [Signed releases](https://github.com/cubiix3/Kova-Image/issues/5) and a clean-machine install test
 - [ ] Wider coverage of monitor color, screen readers, GPUs and DPI setups
-- [ ] HEIC/HEIF and JPEG XL after a license and memory review
+- [ ] Developing camera RAW data instead of showing the embedded preview
+- [ ] Animated AVIF and HEIC sequences, and HEVC inter pictures
 - [ ] Interface translations (the interface is English only)
 
 Out of scope by design: editing, albums, tags, cloud sync, AI features,
