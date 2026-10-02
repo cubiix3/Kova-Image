@@ -61,9 +61,16 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; File associations stay opt-in, and registration only *adds* Kova Image to the
 ; Open with list. Windows still owns which application is the default.
 Name: "associations"; Description: "Register {#AppName} for Open with (Windows keeps your current defaults)"; Flags: unchecked
+; Previews in Explorer and the file dialogs for the formats Windows cannot preview
+; itself (WebP, AVIF, SVG, RAW...). Per user, and only where no other program
+; already provides previews for the extension.
+Name: "thumbnails"; Description: "Show previews in Explorer for formats Windows cannot preview (WebP, AVIF, SVG, RAW...)"
 
 [Files]
-Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#StageDir}\*"; DestDir: "{app}"; Excludes: "kova_thumbnails.dll"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Explorer keeps a loaded preview provider in memory for a while, so replacing or
+; removing it may have to wait for a restart.
+Source: "{#StageDir}\kova_thumbnails.dll"; DestDir: "{app}"; Flags: ignoreversion restartreplace uninsrestartdelete
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\kova-image.exe"
@@ -73,7 +80,12 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\kova-image.exe"; Tasks: deskt
 ; Registration is idempotent and records the final install path, so it has to
 ; run after the files are in place.
 Filename: "{app}\kova-image.exe"; Parameters: "--register-file-associations"; StatusMsg: "Registering {#AppName} for Open with..."; Flags: runhidden waituntilterminated; Tasks: associations
+Filename: "{app}\kova-image.exe"; Parameters: "--register-thumbnails"; StatusMsg: "Enabling Explorer previews..."; Flags: runhidden waituntilterminated; Tasks: thumbnails
 Filename: "{app}\kova-image.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; Takes the preview provider out of the registry again before its files go.
+Filename: "{app}\kova-image.exe"; Parameters: "--unregister-thumbnails"; RunOnceId: "KovaImageThumbnails"; Flags: runhidden
 
 [Registry]
 ; Uninstall cleanup for the keys the application writes when the user opts in.

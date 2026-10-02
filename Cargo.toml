@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "crates/thumbnail"]
+
 [package]
 name = "kova-image"
 version = "0.1.0"
@@ -11,9 +14,13 @@ repository = "https://github.com/cubiix3/Kova-Image"
 [dependencies]
 raw-window-handle = "0.6"
 kamadak-exif = "0.6.1"
-image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff", "ico"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff", "ico", "tga", "pnm", "qoi", "hdr", "exr", "ff"] }
 moxcms = { version = "0.8", features = ["in_place"] }
 slint = { version = "~1.17.1", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "accessibility", "compat-1-2", "unstable-winit-030"] }
+jxl-oxide = { version = "0.12.6", default-features = false, features = ["moxcms"] }
+resvg = "0.47"
+flate2 = "1.1"
+rav1d = { version = "1.1", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-core = "0.62"
@@ -43,3 +50,7 @@ path = "src/main.rs"
 [[bin]]
 name = "kova-bench"
 path = "src/bin/bench.rs"
+
+# rav1d with C-unwind entry points; see scripts/vendor-rav1d.py and docs/DEPENDENCIES.md.
+[patch.crates-io]
+rav1d = { path = "vendor/rav1d" }

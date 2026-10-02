@@ -2,7 +2,7 @@ use image::{DynamicImage, ImageFormat, RgbaImage};
 use kova_image::{
     animation::Loops,
     cache::Cache,
-    decoder::{self, Stamp},
+    decoder::{self, Format, Stamp},
     error::Error,
     folder_navigation::{self, Order},
     security::{self, Generation},
@@ -43,10 +43,10 @@ fn encoded(format: ImageFormat) -> Vec<u8> {
     let image = DynamicImage::ImageRgba8(RgbaImage::from_fn(16, 12, |x, y| {
         image::Rgba([x as u8 * 10, y as u8 * 10, 80, 255])
     }));
-    let image = if format == ImageFormat::Jpeg {
-        DynamicImage::ImageRgb8(image.into_rgb8())
-    } else {
-        image
+    let image = match format {
+        ImageFormat::Jpeg => DynamicImage::ImageRgb8(image.into_rgb8()),
+        ImageFormat::Farbfeld => DynamicImage::ImageRgba16(image.into_rgba16()),
+        _ => image,
     };
     let mut output = Cursor::new(Vec::new());
     image.write_to(&mut output, format).unwrap();
@@ -55,26 +55,88 @@ fn encoded(format: ImageFormat) -> Vec<u8> {
 #[test]
 fn actual_decodes_and_magic_bytes() {
     let temp = Temp::new();
-    for format in [
-        ImageFormat::Jpeg,
-        ImageFormat::Png,
-        ImageFormat::WebP,
-        ImageFormat::Bmp,
-        ImageFormat::Tiff,
-        ImageFormat::Ico,
+    for (encoder, format) in [
+        (ImageFormat::Jpeg, Format::Jpeg),
+        (ImageFormat::Png, Format::Png),
+        (ImageFormat::WebP, Format::WebP),
+        (ImageFormat::Bmp, Format::Bmp),
+        (ImageFormat::Tiff, Format::Tiff),
+        (ImageFormat::Ico, Format::Ico),
+        (ImageFormat::Qoi, Format::Qoi),
+        (ImageFormat::Farbfeld, Format::Farbfeld),
+        (ImageFormat::Pnm, Format::Pnm),
     ] {
-        let bytes = encoded(format);
+        let bytes = encoded(encoder);
         assert_eq!(decoder::detect(&bytes), Ok(format));
         let path = temp.write("wrong-extension.dat", &bytes);
         let image = decoder::load(&path, &Generation::default().next()).unwrap();
+        assert_eq!(image.format, format);
         assert_eq!((image.width, image.height), (16, 12));
         assert_eq!(image.weight(), 16 * 12 * 4);
         assert_eq!(image.frames.len(), 1);
     }
-    assert_eq!(
-        decoder::detect(b"<svg xmlns='http://www.w3.org/2000/svg'/>"),
-        Err(Error::Unsupported)
-    );
+    // Text that merely resembles a signature is not an image.
+    assert_eq!(decoder::detect(b"<html></html>"), Err(Error::Unsupported));
+}
+#[test]
+fn signatureless_float_and_block_compressed_formats() {
+    let temp = Temp::new();
+    let ticket = Generation::default().next();
+    let pixels = DynamicImage::ImageRgba8(RgbaImage::from_fn(16, 12, |x, y| {
+        image::Rgba([x as u8 * 10, y as u8 * 10, 80, 255])
+    }));
+    // TGA has no signature: the extension names it, and the header must still parse.
+    let mut tga = Cursor::new(Vec::new());
+    pixels.write_to(&mut tga, ImageFormat::Tga).unwrap();
+    let path = temp.write("image.tga", tga.get_ref());
+    let image = decoder::load(&path, &ticket).unwrap();
+    assert_eq!(image.format, Format::Tga);
+    assert_eq!((image.width, image.height), (16, 12));
+    assert_eq!(&image.frames[0].rgba[..4], &[0, 0, 80, 255]);
+    assert!(decoder::load(&temp.write("image.dat", tga.get_ref()), &ticket).is_err());
+    assert!(decoder::load(&temp.write("bad.tga", &[0; 40]), &ticket).is_err());
+    // Linear light is encoded with the sRGB curve: 0.214 is about mid grey.
+    let linear = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+        8,
+        4,
+        image::Rgb([0.214, 1.0, 0.0]),
+    ));
+    for (format, name, kind) in [
+        (ImageFormat::Hdr, "image.hdr", Format::Hdr),
+        (ImageFormat::OpenExr, "image.exr", Format::Exr),
+    ] {
+        let mut bytes = Cursor::new(Vec::new());
+        linear.write_to(&mut bytes, format).unwrap();
+        assert_eq!(decoder::detect(bytes.get_ref()), Ok(kind));
+        let image = decoder::load(&temp.write(name, bytes.get_ref()), &ticket).unwrap();
+        assert_eq!((image.width, image.height), (8, 4));
+        let pixel = &image.frames[0].rgba[..4];
+        assert!(pixel[0].abs_diff(128) <= 3, "{kind:?} {pixel:?}");
+        assert_eq!((pixel[1], pixel[2], pixel[3]), (255, 0, 255), "{kind:?}");
+    }
+    // One DXT1 block: opaque red and a blue endpoint, every texel index 0.
+    let mut dds = Vec::new();
+    dds.extend_from_slice(b"DDS ");
+    let mut header = [0u32; 31];
+    header[0] = 124;
+    header[1] = 0x0000_1007; // caps, height, width, pixel format
+    header[2] = 4;
+    header[3] = 4;
+    header[4] = 8;
+    header[18] = 32; // pixel format size
+    header[19] = 4; // DDPF_FOURCC
+    header[20] = u32::from_le_bytes(*b"DXT1");
+    header[26] = 0x1000;
+    for word in header {
+        dds.extend_from_slice(&word.to_le_bytes());
+    }
+    dds.extend_from_slice(&0xf800u16.to_le_bytes());
+    dds.extend_from_slice(&0x001fu16.to_le_bytes());
+    dds.extend_from_slice(&[0; 4]);
+    assert_eq!(decoder::detect(&dds), Ok(Format::Dds));
+    let image = decoder::load(&temp.write("block.dds", &dds), &ticket).unwrap();
+    assert_eq!((image.width, image.height), (4, 4));
+    assert_eq!(&image.frames[0].rgba[..4], &[255, 0, 0, 255]);
 }
 #[test]
 fn missing_corrupted_and_disappearing() {

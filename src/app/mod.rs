@@ -142,6 +142,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         if arg == "--register-file-associations" {
             native::register_associations()?;
             return Ok(());
+        } else if arg == "--register-thumbnails" {
+            native::thumbnails::register(&native::thumbnails::dll_path()?)?;
+            return Ok(());
+        } else if arg == "--unregister-thumbnails" {
+            native::thumbnails::unregister()?;
+            return Ok(());
         } else if arg == "--software" {
             software = true;
         } else if arg == "--measure" {

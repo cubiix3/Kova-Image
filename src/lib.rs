@@ -1,8 +1,10 @@
 pub mod animation;
 pub mod cache;
+mod codecs;
 pub mod decoder;
 pub mod error;
 pub mod folder_navigation;
+pub mod format;
 pub mod image_loader;
 pub mod input;
 pub mod media;

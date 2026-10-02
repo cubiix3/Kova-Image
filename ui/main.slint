@@ -373,8 +373,10 @@ export component ViewerWindow inherits Window {
                             }
                             Rule { }
                             Text { text: "WINDOWS INTEGRATION"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
-                            Text { text: "Images: JPG, PNG, GIF, WebP, BMP, TIFF, APNG, ICO\nVideos: MP4, MOV, WebM, MKV (Windows codecs)"; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
+                            Text { text: "Images: JPG, PNG, GIF, WebP, AVIF, JPEG XL, HEIC, SVG, BMP, TIFF, ICO, RAW and more\nVideos: MP4, MOV, WebM, MKV (Windows codecs)"; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
                             Tool { menu: true; filled: true; label: "Register Kova Image for Open with"; clicked => { root.command("register"); } }
+                            Tool { menu: true; label: "Show previews in Explorer (WebP, AVIF, SVG, RAW...)"; clicked => { root.command("previews"); } }
+                            Tool { menu: true; label: "Remove Explorer previews"; clicked => { root.command("previews-off"); } }
                             Tool { menu: true; label: "Choose default viewer in Windows Settings"; clicked => { root.command("defaults"); } }
                         }
                     }

@@ -5,6 +5,8 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 & "$PSScriptRoot/cargo-msvc.ps1" -CargoArgs @('build', '--locked', '--release', '--bin', 'kova-image')
 if ($LASTEXITCODE -ne 0) { throw "Release build failed." }
+& "$PSScriptRoot/cargo-msvc.ps1" -CargoArgs @('build', '--locked', '--release', '-p', 'kova-thumbnails')
+if ($LASTEXITCODE -ne 0) { throw "Preview provider build failed." }
 $metadataText = & cargo metadata --locked --format-version 1 --filter-platform x86_64-pc-windows-msvc
 if ($LASTEXITCODE -ne 0) { throw "Dependency metadata failed." }
 $metadata = $metadataText | ConvertFrom-Json
@@ -21,6 +23,7 @@ $destinationRoot = (Resolve-Path -LiteralPath $Destination).Path
 $stage = Join-Path $destinationRoot ("Kova-Image-" + $version + "-x64-" + [guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $stage
 Copy-Item -LiteralPath target/release/kova-image.exe -Destination $stage
+Copy-Item -LiteralPath target/release/kova_thumbnails.dll -Destination $stage
 foreach ($file in @('README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md', 'SECURITY.md', 'Cargo.lock')) {
     Copy-Item -LiteralPath $file -Destination $stage
 }
@@ -33,7 +36,8 @@ $index = @()
 $missing = @()
 # Cargo metadata also lists inactive optional packages. Cargo tree selects the
 # actual Windows build. Preserve a conservative superset of runtime libraries.
-foreach ($dependency in $metadata.packages | Where-Object { $_.source -like 'registry+*' -and $active.ContainsKey($_.name + '-' + $_.version) }) {
+# The decoder rav1d is vendored (a path dependency), so it has no registry source.
+foreach ($dependency in $metadata.packages | Where-Object { ($_.source -like 'registry+*' -or ($null -eq $_.source -and $_.manifest_path -like '*vendor*')) -and $active.ContainsKey($_.name + '-' + $_.version) }) {
     $source = Split-Path -Parent $dependency.manifest_path
     $files = @(Get-ChildItem -LiteralPath $source -File | Where-Object { $_.Name -match '^(LICENSE|LICENCE|COPYING|NOTICE|UNLICENSE)' })
     $folders = @(Get-ChildItem -LiteralPath $source -Directory | Where-Object { $_.Name -match '^(LICENSES|LICENCES)$' })
@@ -68,6 +72,7 @@ Kova Image 0.1.0 - Early Development
 Windows 10/11 x64. Run kova-image.exe, or drop a local image or video into its window.
 The Microsoft Visual C++ 2015-2022 Redistributable (x64) may be required.
 This package is unsigned and experimental. No installer or associations are applied.
+kova_thumbnails.dll next to kova-image.exe shows Explorer previews once you opt in under Settings.
 If hardware rendering fails, run kova-image.exe --software.
 Video codecs are supplied by Windows; not every container/codec combination plays.
 Use Settings to opt in to Open with registration after choosing a permanent folder.

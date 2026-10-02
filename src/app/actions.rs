@@ -189,7 +189,7 @@ impl App {
             Slideshow => self.toggle_slideshow(),
             Undo => self.send_shell(Undo, None),
             Open | CopyImage | CopyPath | CopyFile | Delete | Reveal | OpenWith | Register
-            | DefaultApps => self.send_shell(action, None),
+            | DefaultApps | Previews | PreviewsOff => self.send_shell(action, None),
         }
     }
 }
