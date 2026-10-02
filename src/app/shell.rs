@@ -17,7 +17,12 @@ impl App {
         if settings.is_none()
             && !matches!(
                 action,
-                Action::Open | Action::Register | Action::DefaultApps | Action::Undo
+                Action::Open
+                    | Action::Register
+                    | Action::DefaultApps
+                    | Action::Previews
+                    | Action::PreviewsOff
+                    | Action::Undo
             )
             && ((self.image.is_none() && self.video_stamp.is_none())
                 || self.displayed != self.requested)
@@ -166,6 +171,16 @@ pub(super) fn shell_job(job: ShellJob) -> Result<ShellResult, Error> {
         return Ok(ShellResult::Done(
             "Registered for Open with. Choose defaults in Windows Settings.",
         ));
+    }
+    if job.action == Action::Previews {
+        native::thumbnails::register(&native::thumbnails::dll_path()?)?;
+        return Ok(ShellResult::Done(
+            "Explorer now previews WebP, AVIF, SVG and more",
+        ));
+    }
+    if job.action == Action::PreviewsOff {
+        native::thumbnails::unregister()?;
+        return Ok(ShellResult::Done("Explorer previews removed"));
     }
     if job.action == Action::DefaultApps {
         native::default_apps(job.owner)?;

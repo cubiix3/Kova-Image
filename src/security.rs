@@ -5,6 +5,9 @@ use std::sync::{
 };
 
 pub const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
+/// Camera RAW files are read only for their embedded preview, through seeks, so
+/// they may be larger than a file the decoders must read through.
+pub const MAX_RAW_FILE_BYTES: u64 = 1024 * 1024 * 1024;
 /// Source pixels admitted for formats that decode straight to RGBA, and the
 /// most pixels any retained bitmap holds. Larger JPEGs are shrunk to fit.
 pub const MAX_PIXELS: u64 = 32 * 1024 * 1024;
@@ -15,6 +18,11 @@ pub const MAX_PIXELS: u64 = 32 * 1024 * 1024;
 pub const MAX_JPEG_PIXELS: u64 = 64 * 1024 * 1024;
 pub const MAX_DIMENSION: u32 = 32768;
 pub const DECODE_BUDGET: u64 = 256 * 1024 * 1024;
+/// What the JPEG XL decoder may allocate. It works on 32-bit float planes: a
+/// 12 MP photo peaks at about 270 MiB of tracked allocations (22 bytes per
+/// pixel, more with alpha), so `DECODE_BUDGET` would refuse ordinary photos.
+/// Only one decode runs at a time; a larger picture ends in `MemoryBudget`.
+pub const JXL_BUDGET: u64 = 512 * 1024 * 1024;
 pub const FRAME_BUDGET: usize = 128 * 1024 * 1024;
 pub const CACHE_BUDGET: usize = 192 * 1024 * 1024;
 pub const MAX_FRAMES: usize = 2000;
@@ -25,6 +33,13 @@ pub fn cloud_reparse_tag(tag: u32) -> bool {
     tag & 0xffff_0fff == 0x9000_001a
 }
 
+pub fn file_limit(format: crate::format::Format) -> u64 {
+    if format == crate::format::Format::Raw {
+        MAX_RAW_FILE_BYTES
+    } else {
+        MAX_FILE_BYTES
+    }
+}
 pub fn rgba_bytes(width: u32, height: u32) -> Result<usize, Error> {
     rgba_bytes_within(width, height, MAX_PIXELS)
 }

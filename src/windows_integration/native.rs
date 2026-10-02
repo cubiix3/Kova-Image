@@ -88,8 +88,20 @@ pub fn compare_logical(left: &[u16], right: &[u16]) -> std::cmp::Ordering {
 }
 
 pub fn open_image(owner: isize) -> Result<Option<PathBuf>, Error> {
-    // SAFETY: COM apartment is established by the worker. Filter strings are
-    // static, the dialog owns its result, and the allocated path is freed once.
+    // Every extension that the viewer opens, from the one list the folder scan
+    // and the Open with registration use too.
+    let spec: Vec<u16> = crate::media::IMAGE_EXTENSIONS
+        .iter()
+        .chain(crate::media::VIDEO_EXTENSIONS)
+        .map(|extension| format!("*.{extension}"))
+        .collect::<Vec<_>>()
+        .join(";")
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    // SAFETY: COM apartment is established by the worker. The filter strings
+    // outlive the dialog, the dialog owns its result, and the allocated path is
+    // freed once.
     unsafe {
         let dialog: IFileOpenDialog =
             CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).map_err(failure)?;
@@ -104,8 +116,8 @@ pub fn open_image(owner: isize) -> Result<Option<PathBuf>, Error> {
         dialog
             .SetFileTypes(&[
                 COMDLG_FILTERSPEC {
-                    pszName: w!("Images"),
-                    pszSpec: w!("*.jpg;*.jpeg;*.png;*.apng;*.gif;*.webp;*.bmp;*.tif;*.tiff;*.ico;*.mp4;*.m4v;*.mov;*.webm;*.mkv"),
+                    pszName: w!("Images and videos"),
+                    pszSpec: PCWSTR(spec.as_ptr()),
                 },
                 COMDLG_FILTERSPEC {
                     pszName: w!("All files"),

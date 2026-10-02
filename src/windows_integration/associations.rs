@@ -11,7 +11,7 @@ use windows::{
     core::{PCWSTR, w},
 };
 
-fn wide(s: &std::ffi::OsStr) -> Result<Vec<u16>, Error> {
+pub(super) fn wide(s: &std::ffi::OsStr) -> Result<Vec<u16>, Error> {
     let mut result: Vec<_> = s.encode_wide().collect();
     if result.contains(&0) {
         return Err(Error::Io("Null character in Windows path".into()));
@@ -135,7 +135,7 @@ impl Drop for Key {
         }
     }
 }
-fn set(path: &str, name: &str, value: &str) -> Result<(), Error> {
+pub(super) fn set(path: &str, name: &str, value: &str) -> Result<(), Error> {
     let path = wide(path.as_ref())?;
     let name = wide(name.as_ref())?;
     let value = wide(value.as_ref())?;
@@ -278,6 +278,5 @@ mod tests {
             "\"C:\\Kova Test\\猫\\kova-image.exe\" -- \"%1\""
         );
         assert!(open_command(Path::new("relative.exe")).is_err());
-        assert!(!media::IMAGE_EXTENSIONS.contains(&"avif"));
     }
 }

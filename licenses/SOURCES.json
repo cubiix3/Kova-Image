@@ -35,6 +35,11 @@
     "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
   },
   {
+    "file": "licenses/alloc-stdlib-0.2.4/LICENSE",
+    "source": "https://github.com/dropbox/rust-alloc-no-stdlib/blob/ae42d22078b98549e987d2f03d12df7b984fde47/LICENSE",
+    "sha256": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
+  },
+  {
     "file": "licenses/clipboard-win-5.4.1/LICENSE",
     "source": "https://github.com/DoumanAsh/clipboard-win/blob/3b27cf2bfd1adcfa6e0264eb51c1025ddaf0f342/LICENSE",
     "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"

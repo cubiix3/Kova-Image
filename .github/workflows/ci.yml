@@ -26,12 +26,14 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
       - name: Check
-        run: cargo check --locked --all-targets
+        run: cargo check --locked --workspace --all-targets
       - name: Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo test --locked
+        run: cargo test --locked --workspace
       - name: Release executable
         run: cargo build --locked --release --bin kova-image
+      - name: Release Explorer preview provider
+        run: cargo build --locked --release -p kova-thumbnails
       - name: Portable package and license check
         run: .\scripts\package.ps1

@@ -1,12 +1,14 @@
+pub use crate::format::Format;
 use crate::{
     animation::{Loops, frame_delay, gif_frame_delay},
     error::Error,
+    format::SNIFF_BYTES,
     security::{self, Ticket},
 };
-use image::{AnimationDecoder, ImageDecoder, ImageFormat, ImageReader};
+use image::{AnimationDecoder, ImageDecoder, ImageReader};
 use std::{
-    fs::{File, Metadata, OpenOptions},
-    io::{self, BufReader, Read, Seek, SeekFrom},
+    fs::{Metadata, OpenOptions},
+    io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
     path::Path,
     time::{Duration, SystemTime},
 };
@@ -63,7 +65,7 @@ pub struct Decoded {
     pub height: u32,
     pub source_width: u32,
     pub source_height: u32,
-    pub format: ImageFormat,
+    pub format: Format,
     pub frames: Vec<Frame>,
     pub loops: Loops,
     pub stamp: Stamp,
@@ -110,37 +112,27 @@ pub fn fitted_size(src_w: u32, src_h: u32, target: Target) -> (u32, u32) {
     (dimension(src_w), dimension(src_h))
 }
 
-pub fn detect(bytes: &[u8]) -> Result<ImageFormat, Error> {
-    let format = image::guess_format(bytes).map_err(|_| Error::Unsupported)?;
-    if supported(format) {
-        Ok(format)
-    } else {
-        Err(Error::Unsupported)
-    }
-}
-pub fn supported(format: ImageFormat) -> bool {
-    matches!(
-        format,
-        ImageFormat::Jpeg
-            | ImageFormat::Png
-            | ImageFormat::Gif
-            | ImageFormat::WebP
-            | ImageFormat::Bmp
-            | ImageFormat::Tiff
-            | ImageFormat::Ico
-    )
+/// Format of an in-memory file, from its content alone.
+pub fn detect(bytes: &[u8]) -> Result<Format, Error> {
+    crate::format::sniff(bytes, None).ok_or(Error::Unsupported)
 }
 
-struct Cancellable {
-    file: File,
-    ticket: Ticket,
+/// Where the bytes of an image come from: a file, or a stream that another
+/// program hands over (an Explorer preview request).
+pub trait Source: Read + Seek + Send {}
+impl<T: Read + Seek + Send> Source for T {}
+
+/// Reads that stop as soon as the request is stale.
+pub(crate) struct Cancellable {
+    pub(crate) source: Box<dyn Source>,
+    pub(crate) ticket: Ticket,
 }
 impl Read for Cancellable {
     fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
         if !self.ticket.is_current() {
             return Err(io::Error::other("load cancelled"));
         }
-        self.file.read(b)
+        self.source.read(b)
     }
 }
 impl Seek for Cancellable {
@@ -148,7 +140,7 @@ impl Seek for Cancellable {
         if !self.ticket.is_current() {
             return Err(io::Error::other("load cancelled"));
         }
-        self.file.seek(p)
+        self.source.seek(p)
     }
 }
 
@@ -202,30 +194,130 @@ fn decode(
     if !meta.is_file() {
         return Err(Error::Unsupported);
     }
-    if meta.len() > security::MAX_FILE_BYTES {
-        return Err(Error::TooLarge);
-    }
     let stamp = Stamp::from_metadata(&meta);
     let monitor = file.try_clone()?;
-    let source = BufReader::with_capacity(
-        64 * 1024,
-        Cancellable {
-            file,
-            ticket: ticket.clone(),
-        },
-    );
-    let mut reader = ImageReader::new(source).with_guessed_format()?;
-    let format = reader
-        .format()
-        .filter(|f| supported(*f))
-        .ok_or(Error::Unsupported)?;
+    drop(file);
+    // A duplicated handle shares the file position, so every reader starts from
+    // the top.
+    let open = || -> Result<Box<dyn Source>, Error> {
+        let mut file = monitor.try_clone()?;
+        file.seek(SeekFrom::Start(0))?;
+        Ok(Box::new(file))
+    };
+    let unchanged = || -> Result<(), Error> {
+        if Stamp::from_metadata(&monitor.metadata()?) != stamp || Stamp::read(path)? != stamp {
+            return Err(Error::Changed);
+        }
+        Ok(())
+    };
+    decode_source(
+        &open,
+        meta.len(),
+        path.extension().and_then(|e| e.to_str()),
+        stamp.clone(),
+        ticket,
+        target,
+        preview,
+        &unchanged,
+    )
+}
+
+/// Decodes an image from a stream that `open` can create again (each call
+/// returns a reader at the start), for callers that have no file to give, such
+/// as an Explorer preview request. Nothing can be said about whether the source
+/// changes while it is read.
+pub fn load_stream(
+    open: &dyn Fn() -> Result<Box<dyn Source>, Error>,
+    length: u64,
+    extension: Option<&str>,
+    ticket: &Ticket,
+    target: Target,
+) -> Result<Decoded, Error> {
+    let stamp = Stamp {
+        bytes: length,
+        modified: None,
+        created: None,
+    };
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        decode_source(
+            open,
+            length,
+            extension,
+            stamp,
+            ticket,
+            target,
+            &mut |_| {},
+            &|| Ok(()),
+        )
+    }))
+    .unwrap_or_else(|_| Err(Error::Corrupted("decoder panicked".into())));
+    ticket.check()?;
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn decode_source(
+    open: &dyn Fn() -> Result<Box<dyn Source>, Error>,
+    length: u64,
+    extension: Option<&str>,
+    stamp: Stamp,
+    ticket: &Ticket,
+    target: Target,
+    preview: &mut dyn FnMut(Decoded),
+    unchanged: &dyn Fn() -> Result<(), Error>,
+) -> Result<Decoded, Error> {
+    let mut head = Vec::with_capacity(SNIFF_BYTES);
+    open()?.take(SNIFF_BYTES as u64).read_to_end(&mut head)?;
+    // An unrecognised file over the limit is reported as too large, which lets the
+    // loader try it as a video.
+    let Some(format) = crate::format::sniff(&head, extension) else {
+        return Err(if length > security::MAX_FILE_BYTES {
+            Error::TooLarge
+        } else {
+            Error::Unsupported
+        });
+    };
+    drop(head);
+    if length > security::file_limit(format) {
+        return Err(Error::TooLarge);
+    }
+    let pending = if format.image().is_none() {
+        crate::codecs::decode(format, open()?, length, &stamp, ticket, target)?
+    } else {
+        let reader = || -> Result<BufReader<Cancellable>, Error> {
+            Ok(BufReader::with_capacity(
+                64 * 1024,
+                Cancellable {
+                    source: open()?,
+                    ticket: ticket.clone(),
+                },
+            ))
+        };
+        let none = image::metadata::Orientation::NoTransforms;
+        image_pending(&reader, format, ticket, target, &stamp, none, preview)?
+    };
+    finish(ticket, target, unchanged, stamp, pending)
+}
+/// Decodes a format of the `image` crate from a reader that `open` can create
+/// again, since the first reader is used up by reading the image header.
+pub(crate) fn image_pending<R: BufRead + Seek>(
+    open: &dyn Fn() -> Result<R, Error>,
+    format: Format,
+    ticket: &Ticket,
+    target: Target,
+    stamp: &Stamp,
+    default_orientation: image::metadata::Orientation,
+    preview: &mut dyn FnMut(Decoded),
+) -> Result<Pending, Error> {
+    let image_format = format.image().ok_or(Error::Unsupported)?;
+    let mut reader = ImageReader::with_format(open()?, image_format);
     reader.limits(security::limits());
     // into_dimensions consumes the reader, so probe using a decoder and rewind
     // the same locked file handle before construction of the actual decoder.
     let mut probe = reader.into_decoder()?;
     let (mut width, mut height) = probe.dimensions();
     // JPEG is shrunk from its 3-byte-per-pixel buffer, so it may be larger.
-    let max_pixels = if format == ImageFormat::Jpeg {
+    let max_pixels = if format == Format::Jpeg {
         security::MAX_JPEG_PIXELS
     } else {
         security::MAX_PIXELS
@@ -234,25 +326,30 @@ fn decode(
     if probe.total_bytes() > security::DECODE_BUDGET {
         return Err(Error::MemoryBudget);
     }
+    if is_float(probe.color_type()) {
+        // The float canvas and the 8-bit result exist side by side.
+        let output = u64::from(width) * u64::from(height) * 4;
+        if probe.total_bytes().saturating_add(output) > security::DECODE_BUDGET {
+            return Err(Error::MemoryBudget);
+        }
+    }
     let may_have_alpha = probe.color_type().has_alpha();
-    let orientation = probe
-        .orientation()
-        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    // The picture's own orientation wins; a container around it may supply one.
+    let orientation = match probe.orientation() {
+        Ok(found) if found != image::metadata::Orientation::NoTransforms => found,
+        _ => default_orientation,
+    };
     let srgb = srgb_transform(probe.icc_profile().ok().flatten().as_deref());
     let photo = photo_from_exif(probe.exif_metadata().ok().flatten().as_deref());
     drop(probe);
-    let mut source = BufReader::new(Cancellable {
-        file: monitor.try_clone()?,
-        ticket: ticket.clone(),
-    });
-    source.seek(SeekFrom::Start(0))?;
+    let mut source = open()?;
     let mut loops = Loops(Some(1));
     // Animations fit and colour-convert frames as they arrive; stills and
     // one-frame animations hold the full, unconverted canvas until below.
     let mut fitted = false;
     let mut oriented = false;
-    let mut frames = match format {
-        ImageFormat::Gif => {
+    let frames = match format {
+        Format::Gif => {
             // GIF stores *additional* repetitions; image's generic loop API does
             // not distinguish an absent extension. Parse only structural blocks.
             loops = gif_loops(&mut source, ticket)?;
@@ -272,7 +369,7 @@ fn decode(
                         (width, height),
                         format,
                         loops,
-                        &stamp,
+                        stamp,
                         &photo,
                     ))
                 },
@@ -281,7 +378,7 @@ fn decode(
             fitted = animated;
             frames
         }
-        ImageFormat::Png => {
+        Format::Png => {
             let decoder = image::codecs::png::PngDecoder::with_limits(source, security::limits())?;
             if decoder.is_apng()? {
                 let decoder = decoder.apng()?;
@@ -299,7 +396,7 @@ fn decode(
                             (width, height),
                             format,
                             loops,
-                            &stamp,
+                            stamp,
                             &photo,
                         ))
                     },
@@ -311,7 +408,7 @@ fn decode(
                 vec![still(decoder)?]
             }
         }
-        ImageFormat::WebP => {
+        Format::WebP => {
             let mut decoder = image::codecs::webp::WebPDecoder::new(source)?;
             decoder.set_limits(security::limits())?;
             if decoder.has_animation() {
@@ -329,7 +426,7 @@ fn decode(
                             (width, height),
                             format,
                             loops,
-                            &stamp,
+                            stamp,
                             &photo,
                         ))
                     },
@@ -342,10 +439,10 @@ fn decode(
             }
         }
         _ => {
-            let mut reader = ImageReader::with_format(source, format);
+            let mut reader = ImageReader::with_format(source, image_format);
             reader.limits(security::limits());
             let decoder = reader.into_decoder()?;
-            if format == ImageFormat::Jpeg {
+            if format == Format::Jpeg {
                 // Shrunk, oriented and colour-converted in one pass over RGB.
                 let (frame, shown) =
                     jpeg_still(decoder, (width, height), orientation, target, &srgb)?;
@@ -358,10 +455,65 @@ fn decode(
             }
         }
     };
+    Ok(Pending {
+        format,
+        frames,
+        width,
+        height,
+        loops,
+        photo,
+        may_have_alpha,
+        orientation,
+        srgb,
+        fitted,
+        oriented,
+        stored: None,
+    })
+}
+/// A decoded canvas that still needs orientation, fitting and colour conversion.
+pub(crate) struct Pending {
+    pub format: Format,
+    pub frames: Vec<Frame>,
+    /// Size of the canvas as decoded, before any orientation.
+    pub width: u32,
+    pub height: u32,
+    pub loops: Loops,
+    pub photo: PhotoInfo,
+    pub may_have_alpha: bool,
+    pub orientation: image::metadata::Orientation,
+    pub srgb: Srgb,
+    /// The frames are already fitted to the view and colour converted.
+    pub fitted: bool,
+    /// The frames already have their orientation applied.
+    pub oriented: bool,
+    /// Bitmap size of fitted frames when it is not the plain fit of the source
+    /// into the view (a vector image is rendered to the view, larger or smaller
+    /// than its own size).
+    pub stored: Option<(u32, u32)>,
+}
+fn finish(
+    ticket: &Ticket,
+    target: Target,
+    unchanged: &dyn Fn() -> Result<(), Error>,
+    stamp: Stamp,
+    pending: Pending,
+) -> Result<Decoded, Error> {
+    let Pending {
+        format,
+        mut frames,
+        mut width,
+        mut height,
+        loops,
+        photo,
+        may_have_alpha,
+        orientation,
+        srgb,
+        fitted,
+        oriented,
+        stored,
+    } = pending;
     ticket.check()?;
-    if Stamp::from_metadata(&monitor.metadata()?) != stamp || Stamp::read(path)? != stamp {
-        return Err(Error::Changed);
-    }
+    unchanged()?;
     // Fitted results are real animations, which keep their stored orientation.
     if !oriented && frames.len() == 1 && orientation != image::metadata::Orientation::NoTransforms {
         let rgba = std::mem::take(&mut frames[0].rgba);
@@ -376,7 +528,8 @@ fn decode(
     let source_width = width;
     let source_height = height;
     if fitted {
-        (width, height) = fitted_size(source_width, source_height, target);
+        (width, height) =
+            stored.unwrap_or_else(|| fitted_size(source_width, source_height, target));
     } else {
         let rgba = std::mem::take(&mut frames[0].rgba);
         let (rgba, w, h) = scale_rgba(rgba, width, height, target)?;
@@ -468,11 +621,62 @@ fn jpeg_still(
     ))
 }
 fn still(decoder: impl ImageDecoder) -> Result<Frame, Error> {
-    let image = image::DynamicImage::from_decoder(decoder)?.into_rgba8();
     Ok(Frame {
-        rgba: image.into_raw(),
+        rgba: rgba8(image::DynamicImage::from_decoder(decoder)?),
         delay: Duration::from_secs(1),
     })
+}
+fn is_float(color: image::ColorType) -> bool {
+    matches!(color, image::ColorType::Rgb32F | image::ColorType::Rgba32F)
+}
+/// Straight RGBA bytes. Floating point formats (Radiance HDR, OpenEXR) hold
+/// linear light, so they get the sRGB curve instead of a plain 8-bit rescale,
+/// and values above white are clipped. Integer formats convert as usual.
+fn rgba8(image: image::DynamicImage) -> Vec<u8> {
+    match image {
+        image::DynamicImage::ImageRgb32F(buffer) => {
+            let lut = srgb_curve();
+            let mut out = Vec::with_capacity(buffer.as_raw().len() / 3 * 4);
+            for pixel in buffer.as_raw().chunks_exact(3) {
+                out.extend([lut(pixel[0]), lut(pixel[1]), lut(pixel[2]), 255]);
+            }
+            out
+        }
+        image::DynamicImage::ImageRgba32F(buffer) => {
+            let lut = srgb_curve();
+            let mut out = Vec::with_capacity(buffer.as_raw().len());
+            for pixel in buffer.as_raw().chunks_exact(4) {
+                let alpha = (pixel[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+                out.extend([lut(pixel[0]), lut(pixel[1]), lut(pixel[2]), alpha]);
+            }
+            out
+        }
+        other => other.into_rgba8().into_raw(),
+    }
+}
+/// Linear light to an sRGB byte through a table, which is much cheaper than
+/// `powf` per channel on a 16 megapixel float image. Not a fast path for
+/// anything else: 4096 steps keep the error under one level.
+fn srgb_curve() -> impl Fn(f32) -> u8 {
+    static TABLE: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        (0..=4096)
+            .map(|i| {
+                let linear = i as f32 / 4096.0;
+                let encoded = if linear <= 0.003_130_8 {
+                    12.92 * linear
+                } else {
+                    1.055 * linear.powf(1.0 / 2.4) - 0.055
+                };
+                (encoded * 255.0 + 0.5) as u8
+            })
+            .collect()
+    });
+    move |value: f32| {
+        // NaN compares false and takes the lowest entry.
+        let clamped = if value > 0.0 { value.min(1.0) } else { 0.0 };
+        table[(clamped * 4096.0 + 0.5) as usize]
+    }
 }
 fn loop_count(count: image::metadata::LoopCount) -> Loops {
     match count {
@@ -496,14 +700,7 @@ fn collect(
     // Count the source canvas, matching the stored-budget admission used before
     // display scaling. Downscaling only reduces what is retained afterwards.
     let weight = security::rgba_bytes(width, height)?;
-    let fit = |rgba: Vec<u8>| -> Result<Vec<u8>, Error> {
-        let (mut rgba, w, h) = scale_rgba(rgba, width, height, target)?;
-        if (w, h) != (stored_w, stored_h) {
-            return Err(Error::Dimensions);
-        }
-        to_srgb(&mut rgba, srgb);
-        Ok(rgba)
-    };
+    let fit = |rgba: Vec<u8>| fit_frame(rgba, (width, height), target, srgb);
     let mut result: Vec<Frame> = Vec::new();
     let mut announced = false;
     loop {
@@ -542,14 +739,14 @@ fn collect(
     }
     Ok((result, announced))
 }
-fn has_alpha(rgba: &[u8]) -> bool {
+pub(crate) fn has_alpha(rgba: &[u8]) -> bool {
     rgba.chunks_exact(4).any(|pixel| pixel[3] != 255)
 }
 fn partial(
     frame: Frame,
     stored: (u32, u32),
     source: (u32, u32),
-    format: ImageFormat,
+    format: Format,
     loops: Loops,
     stamp: &Stamp,
     photo: &PhotoInfo,
@@ -567,6 +764,20 @@ fn partial(
         photo: photo.clone(),
     }
 }
+/// Shrinks one animation frame to the view and converts it to sRGB.
+pub(crate) fn fit_frame(
+    rgba: Vec<u8>,
+    (width, height): (u32, u32),
+    target: Target,
+    srgb: &Srgb,
+) -> Result<Vec<u8>, Error> {
+    let (mut rgba, w, h) = scale_rgba(rgba, width, height, target)?;
+    if (w, h) != fitted_size(width, height, target) {
+        return Err(Error::Dimensions);
+    }
+    to_srgb(&mut rgba, srgb);
+    Ok(rgba)
+}
 fn scale_rgba(
     rgba: Vec<u8>,
     width: u32,
@@ -582,9 +793,10 @@ fn scale_rgba(
     let small = crate::resample::shrink::<4>(rgba, (width, height), (w, h))?;
     Ok((small, w, h))
 }
-type Srgb = Option<std::sync::Arc<dyn moxcms::InPlaceTransformExecutor<u8> + Send + Sync>>;
+pub(crate) type Srgb =
+    Option<std::sync::Arc<dyn moxcms::InPlaceTransformExecutor<u8> + Send + Sync>>;
 /// Built once per file, then applied to each frame.
-fn srgb_transform(icc: Option<&[u8]>) -> Srgb {
+pub(crate) fn srgb_transform(icc: Option<&[u8]>) -> Srgb {
     let icc = icc.filter(|p| p.len() >= 128)?;
     // image-rs exposes the profile and does not convert pixels. moxcms is the
     // same library image already uses for CICP, applied here to 8-bit RGBA.
@@ -605,7 +817,7 @@ fn to_srgb(rgba: &mut [u8], transform: &Srgb) {
         let _ = transform.transform(rgba);
     }
 }
-fn photo_from_exif(bytes: Option<&[u8]>) -> PhotoInfo {
+pub(crate) fn photo_from_exif(bytes: Option<&[u8]>) -> PhotoInfo {
     let Some(bytes) = bytes.filter(|b| b.len() >= 16) else {
         return PhotoInfo::default();
     };
@@ -775,7 +987,7 @@ mod tests {
             height: 600,
             source_width: 4000,
             source_height: 3000,
-            format: ImageFormat::Png,
+            format: Format::Png,
             frames: Vec::new(),
             loops: Loops(Some(1)),
             stamp: Stamp {
@@ -803,7 +1015,7 @@ mod tests {
             height: h,
             source_width: 8192,
             source_height: 6144,
-            format: ImageFormat::Jpeg,
+            format: Format::Jpeg,
             frames: Vec::new(),
             loops: Loops(Some(1)),
             stamp: Stamp {

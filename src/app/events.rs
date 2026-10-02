@@ -158,7 +158,11 @@ impl App {
                     if (ui.get_show_settings() || ui.get_show_info())
                         && !matches!(
                             action,
-                            Action::Escape | Action::Register | Action::DefaultApps
+                            Action::Escape
+                                | Action::Register
+                                | Action::DefaultApps
+                                | Action::Previews
+                                | Action::PreviewsOff
                         )
                     {
                         return false;
@@ -166,7 +170,11 @@ impl App {
                     if ui.get_show_more()
                         && !matches!(
                             action,
-                            Action::Escape | Action::Register | Action::DefaultApps
+                            Action::Escape
+                                | Action::Register
+                                | Action::DefaultApps
+                                | Action::Previews
+                                | Action::PreviewsOff
                         )
                     {
                         return false;

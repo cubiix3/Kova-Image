@@ -7,3 +7,5 @@ pub use native::*;
 mod associations;
 #[cfg(windows)]
 pub use associations::*;
+#[cfg(windows)]
+pub mod thumbnails;

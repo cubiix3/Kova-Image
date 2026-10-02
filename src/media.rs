@@ -7,9 +7,7 @@ use std::{
     sync::Arc,
 };
 
-pub const IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "jpe", "png", "apng", "gif", "webp", "bmp", "tif", "tiff", "ico",
-];
+pub use crate::format::IMAGE_EXTENSIONS;
 pub const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv"];
 pub const MAX_VIDEO_BYTES: u64 = 32 * 1024 * 1024 * 1024;
 

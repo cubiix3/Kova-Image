@@ -4,7 +4,9 @@
 param([Parameter(Mandatory=$true)][string]$Executable)
 $ErrorActionPreference='Stop'
 $exe=(Resolve-Path -LiteralPath $Executable).Path
-$images=@('jpg','jpeg','jpe','png','apng','gif','webp','bmp','tif','tiff','ico')
+# Keep in step with IMAGE_EXTENSIONS in src/format.rs.
+$images=@('jpg','jpeg','jpe','png','apng','gif','webp','bmp','tif','tiff','ico','tga','pbm','pgm','ppm','pnm','pam','qoi','dds','hdr','exr','ff','jxl','avif','heic','heif','svg','svgz',
+    '3fr','ari','arw','cr2','cr3','crw','dcr','dng','erf','iiq','kdc','mef','mrw','nef','nrw','orf','pef','raf','rw2','rwl','sr2','srf','srw','x3f')
 $videos=@('mp4','m4v','mov','webm','mkv')
 function Read-Choices {
     $values=[ordered]@{}
@@ -33,10 +35,9 @@ try {
         try {if (!$key -or $key.GetValueNames() -notcontains "KovaImage.$kind") {throw "Missing .$extension Open with entry."}}
         finally {if ($key) {$key.Dispose()}}
     }
-    if ($caps.GetValueNames() -contains '.avif') {throw 'Unimplemented AVIF must not be advertised.'}
 } finally {if ($caps) {$caps.Dispose()}}
 $registered=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\RegisteredApplications')
 try {if ($registered.GetValue('Kova Image') -ne 'Software\Kova\Image\Capabilities') {throw 'Missing RegisteredApplications entry.'}}
 finally {$registered.Dispose()}
 if ((Read-Choices) -ne $before) {throw 'Windows default choices unexpectedly changed.'}
-Write-Output 'PASS: 16 format capabilities, quoted commands, Open with, RegisteredApplications; UserChoice unchanged.'
+Write-Output "PASS: $(($images+$videos).Count) format capabilities, quoted commands, Open with, RegisteredApplications; UserChoice unchanged."
