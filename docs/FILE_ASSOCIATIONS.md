@@ -45,13 +45,21 @@ default takeover, and clean-machine association tests remain future work.
 
 ## Explorer previews
 
-Previews are separate from associations. Windows already previews JPEG, PNG, GIF,
-BMP, TIFF and ICO; it has no WebP, AVIF, HEIC, JPEG XL, SVG, RAW, TGA, QOI, DDS,
-HDR or EXR decoder of its own. `kova_thumbnails.dll`, next to the executable,
+Previews are separate from associations. Windows previews JPEG, PNG, GIF, BMP,
+TIFF and ICO, but it has no WebP, AVIF, HEIC, JPEG XL, SVG, RAW, TGA, APNG, QOI,
+DDS, HDR or EXR decoder of its own. `kova_thumbnails.dll`, next to the executable,
 is a thumbnail provider (`IThumbnailProvider` with `IInitializeWithStream`) that
 decodes these through the same code as the viewer, with the same limits, and
 returns a premultiplied BGRA bitmap. Explorer runs it in its isolated
 preview host, so a damaged file takes down only that host process.
+
+The provider is registered for every image extension Kova Image opens. For the six
+formats that Windows reads itself, it looks at the first bytes of the file: when
+the content matches the extension (a real PNG named `.png`), it hands the file to
+Windows' own photo thumbnail provider (`PhotoMetadataHandler.dll`) and returns
+that bitmap unchanged, so those previews do not change. When the content is
+something else (game folders are full of TGA files named `.png`) or Windows fails,
+Kova decodes the file itself.
 
 ```powershell
 .\kova-image.exe --register-thumbnails
@@ -68,8 +76,8 @@ registration it is per user and idempotent and writes only Kova's own keys:
 | `Software\Classes\.<extension>\ShellEx\{E357FCCD-A995-4576-B01F-234630154E96}` | The preview handler of one extension |
 
 An extension is taken only when no other program provides a working preview;
-Windows' generic image handler does not count, because it works only if a codec
-for the format is installed, and neither does a handler whose DLL no longer
+Windows' generic image handler does not count (it is used through the provider
+as described above), and neither does a handler whose DLL no longer
 exists (for example "SumatraPDF Preview" left behind for `.tga` after an
 uninstall: Explorer cannot load it and shows only the file icon). The exception
 is `.dds`: texture tools register their own provider, and Kova's reads the same

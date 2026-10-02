@@ -64,7 +64,7 @@ Name: "associations"; Description: "Register {#AppName} for Open with (Windows k
 ; Previews in Explorer and the file dialogs for the formats Windows cannot preview
 ; itself (WebP, AVIF, SVG, RAW...). Per user, and only where no other program
 ; already provides previews for the extension.
-Name: "thumbnails"; Description: "Show previews in Explorer for formats Windows cannot preview (WebP, AVIF, SVG, RAW...)"
+Name: "thumbnails"; Description: "Show previews in Explorer for more image formats (WebP, AVIF, HEIC, SVG, RAW, TGA, DDS...)"
 
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Excludes: "kova_thumbnails.dll"; Flags: ignoreversion recursesubdirs createallsubdirs

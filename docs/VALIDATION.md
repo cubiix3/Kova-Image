@@ -82,6 +82,19 @@ captures are published in documentation. See [DESIGN.md](DESIGN.md).
   WebP, SVG, AVIF, JPEG XL and RAW files (`cargo test -p kova-thumbnails --
   --ignored`; it changes the HKCU registration, so run it on a development
   machine and register again afterwards).
+- Previews were then checked at scale with `scripts/preview-check.ps1`, which asks
+  the Shell for each thumbnail with the cache bypassed, and
+  `scripts/preview-crosscheck.py`, which compares each one with an independent
+  decoder (Pillow). On the development machine: one generated sample for every
+  supported extension, every camera RAW extension and several videos (72 files, all
+  with a preview), and 36,000 pictures and videos in the user folders, among them
+  about 25,000 TGA and DDS files of game assets and 10,000 PNG: all had a preview.
+  Of 1,507 TGA and DDS files in one asset folder, 1,506 matched Pillow
+  (embedded ICC profiles applied) and the one Pillow cannot read, a colour-mapped
+  RLE TGA, matched an independent decoder written for the check pixel for pixel.
+  The check found and led to fixes for: TGA files named `.dds` or `.png`, 8 bit
+  palettized DDS, APNG, and a leftover preview handler of an uninstalled program.
+  It does not prove clean-machine behaviour or other users' registry states.
 - Embedded ICC profiles are converted to sRGB. Monitor profiles, HDR and a wide
   color corpus are not. Fuzzing and decoder process isolation remain future work.
 - Cache budgets do not include every decoder scratch allocation, copied renderer
