@@ -473,6 +473,8 @@ struct Dds {
     bits: u32,
     masks: [u32; 4],
     dxgi: Option<u32>,
+    /// Bytes per row, written with the pitch flag when not zero.
+    pitch: u32,
 }
 
 impl Dds {
@@ -480,7 +482,8 @@ impl Dds {
         let mut out = b"DDS ".to_vec();
         let mut header = [0u32; 31];
         header[0] = 124;
-        header[1] = 0x1007; // caps, height, width, pixel format
+        header[1] = 0x1007 | if self.pitch != 0 { 0x8 } else { 0 }; // caps, height, width, pixel format
+        header[4] = self.pitch;
         header[2] = self.height;
         header[3] = self.width;
         header[18] = 32; // size of the pixel format
@@ -517,6 +520,7 @@ fn packed(width: u32, height: u32, flags: u32, bits: u32, masks: [u32; 4]) -> Dd
         bits,
         masks,
         dxgi: None,
+        pitch: 0,
     }
 }
 
@@ -529,6 +533,7 @@ fn dx10(width: u32, height: u32, format: u32) -> Dds {
         bits: 0,
         masks: [0; 4],
         dxgi: Some(format),
+        pitch: 0,
     }
 }
 
@@ -610,6 +615,44 @@ fn dds_palettized_textures_use_their_rgba_palette() {
     // The palette is part of the file: cut short, it is an error.
     let short = packed(2, 2, PALETTE_INDEXED8, 8, [0; 4]).bytes(&data[..500]);
     assert!(dds_load(&short).is_err());
+}
+
+#[test]
+fn dds_rows_aligned_to_four_bytes_are_read_with_their_padding() {
+    const PALETTE_INDEXED8: u32 = 0x20;
+    // 3 pixels wide, rows padded to 4 bytes; the padding holds garbage.
+    let mut palette = vec![0u8; 1024];
+    for (i, colour) in [[10u8, 0, 0, 255], [0, 20, 0, 255], [0, 0, 30, 255]]
+        .iter()
+        .enumerate()
+    {
+        palette[i * 4..][..4].copy_from_slice(colour);
+    }
+    let mut data = palette;
+    data.extend_from_slice(&[0, 1, 2, 0xee, 2, 1, 0, 0xee]); // 3 x 2 indices
+    let mut file = packed(3, 2, PALETTE_INDEXED8, 8, [0; 4]);
+    file.pitch = 4;
+    let image = dds_load(&file.bytes(&data)).unwrap();
+    let reds: Vec<u8> = image.frames[0]
+        .rgba
+        .chunks(4)
+        .map(|p| p[0] + p[1] + p[2])
+        .collect();
+    assert_eq!(reds, [10, 20, 30, 30, 20, 10]);
+    // Uncompressed 24 bit rows, 3 pixels = 9 bytes, padded to 12.
+    let mut rows = Vec::new();
+    for fill in [1u8, 2] {
+        rows.extend_from_slice(&[fill, 0, 0, fill, 0, 0, fill, 0, 0, 0xee, 0xee, 0xee]);
+    }
+    let mut file = packed(3, 2, 0x40, 24, [0xff_0000, 0xff00, 0xff, 0]);
+    file.pitch = 12;
+    // The last row's padding may be missing from the file.
+    let image = dds_load(&file.bytes(&rows[..rows.len() - 3])).unwrap();
+    assert_eq!(image.frames[0].rgba[5 * 4..6 * 4], [0, 0, 2, 255]);
+    // A pitch that is not just alignment is not trusted.
+    let mut file = packed(3, 1, 0x40, 24, [0xff_0000, 0xff00, 0xff, 0]);
+    file.pitch = 4096;
+    assert!(dds_load(&file.bytes(&rows[..9])).is_ok());
 }
 
 #[test]
