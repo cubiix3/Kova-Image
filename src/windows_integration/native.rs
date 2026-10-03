@@ -93,6 +93,7 @@ pub fn open_image(owner: isize) -> Result<Option<PathBuf>, Error> {
     let spec: Vec<u16> = crate::media::IMAGE_EXTENSIONS
         .iter()
         .chain(crate::media::VIDEO_EXTENSIONS)
+        .chain(crate::media::AUDIO_EXTENSIONS)
         .map(|extension| format!("*.{extension}"))
         .collect::<Vec<_>>()
         .join(";")
@@ -116,7 +117,7 @@ pub fn open_image(owner: isize) -> Result<Option<PathBuf>, Error> {
         dialog
             .SetFileTypes(&[
                 COMDLG_FILTERSPEC {
-                    pszName: w!("Images and videos"),
+                    pszName: w!("Images, videos and audio"),
                     pszSpec: PCWSTR(spec.as_ptr()),
                 },
                 COMDLG_FILTERSPEC {

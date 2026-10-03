@@ -89,6 +89,8 @@ struct App {
     video_state: Option<kova_image::video::VideoState>,
     video_stamp: Option<kova_image::decoder::Stamp>,
     video_kind: Option<kova_image::media::VideoKind>,
+    /// Title, artist and cover of the audio file that plays.
+    audio_info: Option<Arc<kova_image::audio::AudioInfo>>,
     video_delete: Option<PathBuf>,
     volume: f64,
     muted: bool,
@@ -241,6 +243,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         video_state: None,
         video_stamp: None,
         video_kind: None,
+        audio_info: None,
         video_delete: None,
         volume: 0.7,
         muted: cfg!(debug_assertions) && std::env::var_os("KOVA_TEST_MUTE").is_some(),
@@ -422,8 +425,11 @@ impl App {
         self.video_state = None;
         self.video_stamp = None;
         self.video_kind = None;
+        self.audio_info = None;
         if let Some(ui) = self.ui.upgrade() {
             ui.set_is_video(false);
+            ui.set_is_audio(false);
+            ui.set_has_cover(false);
             ui.set_feedback("".into());
         }
         self.playback = Playback::default();

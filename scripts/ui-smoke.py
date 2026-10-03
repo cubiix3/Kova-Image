@@ -44,6 +44,19 @@ if "--software" in sys.argv:
 if scenario == "video":
     (ROOT / "artifacts/video-fixtures/clip0.png").write_bytes((fixture.parent / "image2.png").read_bytes())
     arguments.append(str(ROOT / "artifacts/video-fixtures/clip1.mp4"))
+elif scenario == "file":
+    # Any file, for looking at: --state=file --path=C:\Music\song.mp3
+    arguments.append(next(arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--path=")))
+elif scenario == "audio":
+    import shutil
+
+    folder = OUT / "audio-folder"
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir()
+    for name in ("song.mp3", "song.flac", "tone.wav", "tone.opus"):
+        shutil.copy(ROOT / "tests/fixtures" / name, folder / name)
+    (folder / "zz.png").write_bytes((fixture.parent / "image2.png").read_bytes())
+    arguments.append(str(folder / "song.mp3"))
 elif scenario == "missing":
     arguments.append(str(OUT / "missing-image.png"))
 elif scenario == "corrupted":
@@ -223,6 +236,50 @@ try:
         time.sleep(0.5)
         assert snapshot("video-stale-protection")["filename"]=="clip4.mkv"
         print("PASS: native video frame, pause, stable clock, timeline seek, mute, info, compact layout, fullscreen auto-hide")
+    elif scenario == "file":
+        wait_for(state_file.exists, seconds=25)
+        values = snapshot("file-open")
+        print({k: values[k] for k in ("filename", "video", "audio", "cover", "audio_title", "error", "paused") if k in values})
+        print("PASS: opened the file, see artifacts/ui-smoke/file-open.png")
+    elif scenario == "audio":
+        wait_for(state_file.exists, seconds=25)
+        # An MP3 with a cover: the cover is the picture, the clock runs.
+        values = snapshot("audio-cover")
+        assert values["video"] == "true" and values["audio"] == "true" and values["cover"] == "true"
+        assert values["audio_title"] == "Kova Song" and float(values["video_duration"]) > 0.5
+        assert values["error"] == "" and float(values["display_width"]) > 10
+        key(0x20)  # Space pauses
+        assert snapshot("audio-paused")["paused"] == "true"
+        key(ord("I"))
+        assert snapshot("audio-info")["info"] == "true"
+        key(0x1B)
+        # Next in the folder: song.mp3, tone.opus (no decoder on a plain Windows)...
+        key(0x27)
+        # Windows needs an extra decoder for Opus: the error appears once the engine gives up.
+        for _ in range(60):
+            values = snapshot("audio-next-opus", refresh=False)
+            if values["error"]:
+                break
+            time.sleep(0.25)
+        assert values["filename"] == "tone.opus" and values["error"], values
+        # ...tone.wav has no tags and no cover: a panel with the file name.
+        key(0x27)
+        values = snapshot("audio-no-cover")
+        assert values["filename"] == "tone.wav" and values["audio"] == "true"
+        assert values["cover"] == "false" and values["error"] == ""
+        user.SetWindowPos(hwnd, None, 0, 0, 640, 420, 0x0006)
+        snapshot("audio-no-cover-small")
+        user.SetWindowPos(hwnd, None, 0, 0, 1080, 740, 0x0006)
+        # An image after the song: the audio state must be gone.
+        key(0x27)
+        values = snapshot("audio-to-image")
+        assert values["filename"] == "zz.png" and values["video"] == "false" and values["audio"] == "false"
+        # And back to the FLAC with its cover: zz.png, tone.wav, tone.opus, song.mp3, song.flac.
+        for _ in range(4):
+            key(0x25)
+        values = snapshot("audio-flac")
+        assert values["filename"] == "song.flac" and values["cover"] == "true"
+        print("PASS: audio cover, tags, pause, info, no-cover panel, error state, return to images")
     elif scenario == "pinned":
         wait_for(state_file.exists)
         click(540, 370)

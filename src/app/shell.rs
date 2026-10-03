@@ -122,12 +122,15 @@ impl App {
                         self.video_stamp = None;
                         self.video_state = None;
                         self.video_kind = None;
+                        self.audio_info = None;
                         self.displayed = None;
                         self.requested = None;
                         if let Some(ui) = self.ui.upgrade() {
                             ui.set_picture(slint::Image::default());
                             ui.set_has_image(false);
                             ui.set_is_video(false);
+                            ui.set_is_audio(false);
+                            ui.set_has_cover(false);
                             ui.set_animated(false);
                             ui.set_filename("Kova Image".into());
                             ui.set_image_detail("".into());

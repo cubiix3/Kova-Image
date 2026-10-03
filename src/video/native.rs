@@ -1,6 +1,10 @@
-//! Media Foundation and D3D calls are confined to the playback worker.
+//! Media Foundation and D3D calls are confined to the playback worker. Audio
+//! files use the same engine in its audio-only mode, without a graphics device.
 use super::{Frame, VideoState};
-use crate::{error::Error, media::VideoSource};
+use crate::{
+    error::Error,
+    media::{VideoKind, VideoSource},
+};
 use std::sync::{
     Arc,
     atomic::{AtomicU32, Ordering},
@@ -21,7 +25,7 @@ use windows::{
 
 fn fail(e: windows::core::Error) -> Error {
     Error::Io(format!(
-        "Windows video playback failed: {e}. The codec may not be installed or the file may be damaged."
+        "Windows media playback failed: {e}. The codec may not be installed or the file may be damaged."
     ))
 }
 #[implement(IMFMediaEngineNotify)]
@@ -36,16 +40,19 @@ impl IMFMediaEngineNotify_Impl for Notify_Impl {
 }
 pub(super) struct Engine {
     engine: IMFMediaEngine,
-    context: ID3D11DeviceContext,
-    device: ID3D11Device,
+    // Absent for audio, which needs no graphics device.
+    context: Option<ID3D11DeviceContext>,
+    device: Option<ID3D11Device>,
     target: Option<ID3D11Texture2D>,
     staging: Option<ID3D11Texture2D>,
     size: (u32, u32),
     error: Arc<AtomicU32>,
     // Retain stream and manager until Shutdown finishes.
     _stream: IMFByteStream,
-    _manager: IMFDXGIDeviceManager,
+    _manager: Option<IMFDXGIDeviceManager>,
     pub hardware: bool,
+    audio_only: bool,
+    kind: VideoKind,
 }
 pub(super) struct Runtime;
 impl Runtime {
@@ -72,49 +79,53 @@ impl Drop for Runtime {
         }
     }
 }
-impl Engine {
-    pub fn open(source: &VideoSource, volume: f64, muted: bool) -> Result<Self, Error> {
-        // SAFETY: worker has an MTA/MF runtime; COM references own all returned
-        // resources. Device is multithread-protected for MF's decoder threads.
-        unsafe {
-            let mut device = None;
-            let mut context = None;
-            let flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
-            let hardware = D3D11CreateDevice(
+/// A hardware or, failing that, a WARP Direct3D device, and its context.
+///
+/// # Safety
+/// Calls into Direct3D; the returned objects own their resources.
+unsafe fn create_device() -> Result<(ID3D11Device, ID3D11DeviceContext, bool), Error> {
+    // SAFETY: out pointers are valid locals; see the function contract.
+    unsafe {
+        let mut device = None;
+        let mut context = None;
+        let flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
+        let hardware = D3D11CreateDevice(
+            None,
+            D3D_DRIVER_TYPE_HARDWARE,
+            HMODULE::default(),
+            flags,
+            None,
+            D3D11_SDK_VERSION,
+            Some(&mut device),
+            None,
+            Some(&mut context),
+        )
+        .is_ok();
+        if !hardware {
+            D3D11CreateDevice(
                 None,
-                D3D_DRIVER_TYPE_HARDWARE,
+                D3D_DRIVER_TYPE_WARP,
                 HMODULE::default(),
-                flags,
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
                 None,
                 D3D11_SDK_VERSION,
                 Some(&mut device),
                 None,
                 Some(&mut context),
             )
-            .is_ok();
-            if !hardware {
-                D3D11CreateDevice(
-                    None,
-                    D3D_DRIVER_TYPE_WARP,
-                    HMODULE::default(),
-                    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                    None,
-                    D3D11_SDK_VERSION,
-                    Some(&mut device),
-                    None,
-                    Some(&mut context),
-                )
-                .map_err(fail)?;
-            }
-            let device = device.ok_or_else(|| Error::Io("No video graphics device".into()))?;
-            let context = context.ok_or_else(|| Error::Io("No video graphics context".into()))?;
-            let multi: ID3D11Multithread = context.cast().map_err(fail)?;
-            let _ = multi.SetMultithreadProtected(true);
-            let mut token = 0;
-            let mut manager = None;
-            MFCreateDXGIDeviceManager(&mut token, &mut manager).map_err(fail)?;
-            let manager = manager.ok_or_else(|| Error::Io("No DXGI device manager".into()))?;
-            manager.ResetDevice(&device, token).map_err(fail)?;
+            .map_err(fail)?;
+        }
+        let device = device.ok_or_else(|| Error::Io("No video graphics device".into()))?;
+        let context = context.ok_or_else(|| Error::Io("No video graphics context".into()))?;
+        Ok((device, context, hardware))
+    }
+}
+impl Engine {
+    pub fn open(source: &VideoSource, volume: f64, muted: bool) -> Result<Self, Error> {
+        // SAFETY: worker has an MTA/MF runtime; COM references own all returned
+        // resources. Device is multithread-protected for MF's decoder threads.
+        unsafe {
+            let audio_only = source.kind.is_audio();
             let mut attrs = None;
             MFCreateAttributes(&mut attrs, 4).map_err(fail)?;
             let attrs = attrs.ok_or_else(|| Error::Io("No media attributes".into()))?;
@@ -123,21 +134,36 @@ impl Engine {
             attrs
                 .SetUnknown(&MF_MEDIA_ENGINE_CALLBACK, &notify)
                 .map_err(fail)?;
-            attrs
-                .SetUnknown(&MF_MEDIA_ENGINE_DXGI_MANAGER, &manager)
-                .map_err(fail)?;
-            attrs
-                .SetUINT32(
-                    &MF_MEDIA_ENGINE_VIDEO_OUTPUT_FORMAT,
-                    DXGI_FORMAT_B8G8R8A8_UNORM.0 as u32,
-                )
-                .map_err(fail)?;
+            let (device, context, manager, hardware) = if audio_only {
+                (None, None, None, false)
+            } else {
+                let (device, context, hardware) = create_device()?;
+                let multi: ID3D11Multithread = context.cast().map_err(fail)?;
+                let _ = multi.SetMultithreadProtected(true);
+                let mut token = 0;
+                let mut manager = None;
+                MFCreateDXGIDeviceManager(&mut token, &mut manager).map_err(fail)?;
+                let manager = manager.ok_or_else(|| Error::Io("No DXGI device manager".into()))?;
+                manager.ResetDevice(&device, token).map_err(fail)?;
+                attrs
+                    .SetUnknown(&MF_MEDIA_ENGINE_DXGI_MANAGER, &manager)
+                    .map_err(fail)?;
+                attrs
+                    .SetUINT32(
+                        &MF_MEDIA_ENGINE_VIDEO_OUTPUT_FORMAT,
+                        DXGI_FORMAT_B8G8R8A8_UNORM.0 as u32,
+                    )
+                    .map_err(fail)?;
+                (Some(device), Some(context), Some(manager), hardware)
+            };
             let factory: IMFMediaEngineClassFactory =
                 CoCreateInstance(&CLSID_MFMediaEngineClassFactory, None, CLSCTX_INPROC_SERVER)
                     .map_err(fail)?;
-            let engine = factory
-                .CreateInstance(MF_MEDIA_ENGINE_DISABLE_LOCAL_PLUGINS.0 as u32, &attrs)
-                .map_err(fail)?;
+            let mut flags = MF_MEDIA_ENGINE_DISABLE_LOCAL_PLUGINS.0 as u32;
+            if audio_only {
+                flags |= MF_MEDIA_ENGINE_AUDIOONLY.0 as u32;
+            }
+            let engine = factory.CreateInstance(flags, &attrs).map_err(fail)?;
             let stream = MFCreateMFByteStreamOnStream(&super::stream::FileStream::make(
                 source.file.clone(),
                 source.stamp.bytes,
@@ -154,6 +180,8 @@ impl Engine {
                 _stream: stream,
                 _manager: manager,
                 hardware,
+                audio_only,
+                kind: source.kind,
             };
             instance.engine.SetVolume(volume).map_err(fail)?;
             instance.engine.SetMuted(muted).map_err(fail)?;
@@ -165,6 +193,10 @@ impl Engine {
                 .map_err(fail)?;
             Ok(instance)
         }
+    }
+    /// Sound only: no picture is produced and polling can be slow.
+    pub fn audio_only(&self) -> bool {
+        self.audio_only
     }
     pub fn state(&self) -> Result<Option<VideoState>, Error> {
         // SAFETY: synchronous queries on the worker-owned, live engine.
@@ -180,24 +212,40 @@ impl Engine {
                             .unwrap_or_else(|| e.GetErrorCode().to_string())
                     })
                     .unwrap_or_default();
+                // MF_E_UNSUPPORTED_BYTESTREAM_TYPE: Windows has no handler for the
+                // container. Ogg and Opus come with Microsoft's free Web Media Extensions.
+                if detail == "0xC00D36C4" && matches!(self.kind, VideoKind::Ogg | VideoKind::Opus) {
+                    return Err(Error::Io(
+                        "Windows can't play Ogg Vorbis or Opus files without an extra decoder. Install the free \u{201c}Web Media Extensions\u{201d} from the Microsoft Store, then open the file again.".into(),
+                    ));
+                }
+                let what = if self.audio_only { "Audio" } else { "Video" };
                 return Err(Error::Io(format!(
-                    "Video could not be decoded ({detail}). This codec may be unsupported, or the file is damaged."
+                    "{what} could not be decoded ({detail}). This codec may be unsupported, or the file is damaged."
                 )));
             }
             if self.engine.GetReadyState() < 2 {
                 return Ok(None);
             }
-            if !self.engine.HasVideo().as_bool() {
-                return Err(Error::Io("This file has no supported video track".into()));
-            }
-            let (mut w, mut h) = (0, 0);
-            self.engine
-                .GetNativeVideoSize(Some(&mut w), Some(&mut h))
-                .map_err(fail)?;
-            super::validate_dimensions(w, h)?;
+            let (w, h) = if self.audio_only {
+                if !self.engine.HasAudio().as_bool() {
+                    return Err(Error::Io("This file has no supported audio track".into()));
+                }
+                (0, 0)
+            } else {
+                if !self.engine.HasVideo().as_bool() {
+                    return Err(Error::Io("This file has no supported video track".into()));
+                }
+                let (mut w, mut h) = (0, 0);
+                self.engine
+                    .GetNativeVideoSize(Some(&mut w), Some(&mut h))
+                    .map_err(fail)?;
+                super::validate_dimensions(w, h)?;
+                (w, h)
+            };
             let duration = self.engine.GetDuration();
             if !duration.is_finite() || duration <= 0.0 || duration > 7.0 * 24.0 * 3600.0 {
-                return Err(Error::Io("Invalid or unsupported video duration".into()));
+                return Err(Error::Io("Invalid or unsupported media duration".into()));
             }
             Ok(Some(VideoState {
                 width: w,
@@ -240,6 +288,12 @@ impl Engine {
         view_w: u32,
         view_h: u32,
     ) -> Result<Option<Frame>, Error> {
+        if self.audio_only {
+            return Ok(None);
+        }
+        let (Some(device), Some(context)) = (self.device.clone(), self.context.clone()) else {
+            return Err(Error::Io("No video graphics device".into()));
+        };
         // SAFETY: textures are worker-owned and match the validated dimensions.
         // Map/Unmap bound the lifetime of the readback pointer; each row respects
         // RowPitch. Only the bounded presentation image is copied to the UI.
@@ -269,7 +323,7 @@ impl Engine {
                     BindFlags: D3D11_BIND_RENDER_TARGET.0 as u32,
                     ..Default::default()
                 };
-                self.device
+                device
                     .CreateTexture2D(&desc, None, Some(&mut self.target))
                     .map_err(fail)?;
                 let desc = D3D11_TEXTURE2D_DESC {
@@ -278,7 +332,7 @@ impl Engine {
                     CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
                     ..desc
                 };
-                self.device
+                device
                     .CreateTexture2D(&desc, None, Some(&mut self.staging))
                     .map_err(fail)?;
                 self.size = (w, h);
@@ -305,19 +359,19 @@ impl Engine {
                     None,
                 )
                 .map_err(fail)?;
-            self.context.CopyResource(staging, target);
+            context.CopyResource(staging, target);
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-            self.context
+            context
                 .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
                 .map_err(fail)?;
             let row = w as usize * 4;
             if mapped.pData.is_null() || (mapped.RowPitch as usize) < row {
-                self.context.Unmap(staging, 0);
+                context.Unmap(staging, 0);
                 return Err(Error::Io("Invalid video surface stride".into()));
             }
             let mut rgba = Vec::new();
             if rgba.try_reserve_exact(row * h as usize).is_err() {
-                self.context.Unmap(staging, 0);
+                context.Unmap(staging, 0);
                 return Err(Error::MemoryBudget);
             }
             rgba.resize(row * h as usize, 0);
@@ -331,7 +385,7 @@ impl Engine {
                     dst.copy_from_slice(&[src[2], src[1], src[0], 255]);
                 }
             }
-            self.context.Unmap(staging, 0);
+            context.Unmap(staging, 0);
             Ok(Some(Frame {
                 width: w,
                 height: h,

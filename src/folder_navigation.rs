@@ -11,6 +11,7 @@ pub fn supported_extension(path: &Path) -> bool {
         EXTENSIONS
             .iter()
             .chain(crate::media::VIDEO_EXTENSIONS)
+            .chain(crate::media::AUDIO_EXTENSIONS)
             .any(|ext| s.eq_ignore_ascii_case(ext))
     })
 }

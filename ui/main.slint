@@ -20,6 +20,12 @@ export component ViewerWindow inherits Window {
     in property <bool> has-image: false;
     in property <bool> loading: false;
     in property <bool> is-video;
+    // Sound only: shown with the cover picture, or with a panel when there is none.
+    in property <bool> is-audio;
+    in property <bool> has-cover;
+    in property <string> audio-title;
+    in property <string> audio-artist;
+    in property <string> audio-album;
     in property <float> video-progress;
     in property <string> time-label: "0:00 / 0:00";
     in property <float> volume: 0.7;
@@ -141,6 +147,25 @@ export component ViewerWindow inherits Window {
             image-rendering: root.pixelated && !root.is-video ? ImageRendering.pixelated : ImageRendering.smooth;
             accessible-label: root.filename;
         }
+        if root.is-audio && root.has-image && !root.has-cover: Rectangle {
+            width: min(480px, parent.width - 24px); height: min(236px, parent.height - 24px);
+            x: (parent.width - self.width)/2; y: (parent.height - self.height)/2;
+            border-radius: 18px; background: Theme.surface;
+            VerticalLayout {
+                padding: 24px; spacing: 8px; alignment: center;
+                Rectangle {
+                    height: 68px;
+                    Rectangle {
+                        width: 60px; height: 60px; x: (parent.width - self.width)/2;
+                        border-radius: 15px; background: Theme.raised;
+                        Image { source: Icons.audio; colorize: Theme.accent; width: 30px; height: 30px; x: 15px; y: 15px; }
+                    }
+                }
+                Text { text: root.audio-title != "" ? root.audio-title : root.filename; color: Theme.text; font-size: 20px; font-weight: 600; horizontal-alignment: center; wrap: word-wrap; }
+                if root.audio-artist != "": Text { text: root.audio-artist; color: Theme.secondary; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+                if root.audio-album != "": Text { text: root.audio-album; color: Theme.muted; font-size: 12px; horizontal-alignment: center; wrap: word-wrap; }
+            }
+        }
         TouchArea {
             enabled: !root.modal && !root.show-more && root.has-image;
             double-clicked => { root.command("fullscreen"); }
@@ -160,12 +185,12 @@ export component ViewerWindow inherits Window {
                     }
                 }
                 Text { text: root.loading ? "Opening media" : root.error-title != "" ? root.error-title : "Open a local file"; color: Theme.text; font-size: 20px; font-weight: 600; horizontal-alignment: center; wrap: word-wrap; }
-                Text { text: root.loading ? "Your file will appear here." : root.error-title != "" ? root.error-detail : "Images, animations and videos. Simply drop a file here."; color: Theme.secondary; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; overflow: elide; max-height: 64px; }
+                Text { text: root.loading ? "Your file will appear here." : root.error-title != "" ? root.error-detail : "Images, animations, videos and audio. Simply drop a file here."; color: Theme.secondary; font-size: 13px; horizontal-alignment: center; wrap: word-wrap; overflow: elide; max-height: 64px; }
                 if !root.loading: HorizontalLayout {
                     alignment: center; padding-top: 8px;
                     Tool { label: root.error-title != "" ? "Open another file" : "Open file"; icon: Icons.open; has-icon: true; primary: true; enabled: root.tools-enabled; hint: "Open file  ·  Ctrl+O"; clicked => { root.command("open"); } }
                 }
-                if !root.loading: Text { text: root.error-title != "" ? "You can still navigate to the next file." : "JPG, PNG, GIF, MP4 and more  ·  Ctrl+O"; color: Theme.muted; font-size: 12px; horizontal-alignment: center; }
+                if !root.loading: Text { text: root.error-title != "" ? "You can still navigate to the next file." : "JPG, PNG, GIF, MP4, MP3 and more  ·  Ctrl+O"; color: Theme.muted; font-size: 12px; horizontal-alignment: center; }
             }
         }
     }
@@ -239,8 +264,8 @@ export component ViewerWindow inherits Window {
             if root.animated && !root.is-video: VerticalLayout { alignment: center; horizontal-stretch: 0; Tool { icon: root.paused ? Icons.play : Icons.pause; has-icon: true; checkable: true; active: !root.paused; hint: root.paused ? "Play animation  ·  Space" : "Pause animation  ·  Space"; enabled: root.image-tools; clicked => { root.command("pause"); } } }
             if root.is-video: Group {
                 horizontal-stretch: 1;
-                Tool { icon: root.paused ? Icons.play : Icons.pause; has-icon: true; hint: root.paused ? "Play video  /  Space" : "Pause video  /  Space"; enabled: root.tools-enabled && root.has-image; clicked => { root.command("pause"); } }
-                Track { value: root.video-progress; label: "Seek video / Ctrl+Left or Ctrl+Right: 5 seconds"; value-label: root.time-label; enabled: root.tools-enabled && root.has-image; changed(value) => { root.seek(value); } }
+                Tool { icon: root.paused ? Icons.play : Icons.pause; has-icon: true; hint: (root.paused ? "Play" : "Pause") + (root.is-audio ? "" : " video") + "  /  Space"; enabled: root.tools-enabled && root.has-image; clicked => { root.command("pause"); } }
+                Track { value: root.video-progress; label: root.is-audio ? "Seek / Ctrl+Left or Ctrl+Right: 5 seconds" : "Seek video / Ctrl+Left or Ctrl+Right: 5 seconds"; value-label: root.time-label; enabled: root.tools-enabled && root.has-image; changed(value) => { root.seek(value); } }
                 Text { text: root.time-label; color: Theme.secondary; font-size: 12px; width: root.compact ? 84px : 106px; horizontal-alignment: center; vertical-alignment: center; }
                 Tool { icon: root.muted || root.volume == 0 ? Icons.mute : Icons.volume; has-icon: true; hint: "Mute / unmute  /  M"; active: root.muted; checkable: true; enabled: root.tools-enabled; clicked => { root.command("mute"); } }
                 Track { value: root.volume; label: "Volume"; width: root.compact ? 58px : 80px; horizontal-stretch: 0; enabled: root.tools-enabled; changed(value) => { root.volume-change(value); } }
@@ -301,7 +326,7 @@ export component ViewerWindow inherits Window {
                     }
                 }
                 Rule { }
-                Text { text: "Kova Image  0.2.1  ·  Early Development"; color: Theme.muted; font-size: 11px; height: 26px; horizontal-alignment: center; vertical-alignment: center; }
+                Text { text: "Kova Image  0.3.0  ·  Early Development"; color: Theme.muted; font-size: 11px; height: 26px; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
     }
@@ -340,8 +365,8 @@ export component ViewerWindow inherits Window {
                             Text { text: "PLAYBACK & NAVIGATION"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
                             ToggleRow { label: "Autoplay animations"; checked <=> root.autoplay; toggled(value) => { root.setting("autoplay",value); } }
                             ToggleRow { label: "Honor animation loop count"; checked <=> root.looping; toggled(value) => { root.setting("looping",value); } }
-                            ToggleRow { label: "Autoplay videos"; checked <=> root.video-autoplay; toggled(value) => { root.setting("video-autoplay",value); } }
-                            ToggleRow { label: "Loop videos"; checked <=> root.video-loop; toggled(value) => { root.setting("video-loop",value); } }
+                            ToggleRow { label: "Autoplay videos and audio"; checked <=> root.video-autoplay; toggled(value) => { root.setting("video-autoplay",value); } }
+                            ToggleRow { label: "Loop videos and audio"; checked <=> root.video-loop; toggled(value) => { root.setting("video-loop",value); } }
                             ToggleRow { label: "Natural sorting (numbers by value, like Explorer)"; checked <=> root.natural-sort; toggled(value) => { root.setting("natural",value); } }
                             HorizontalLayout { spacing: 6px;
                                 Text { text: "Sort files by"; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
@@ -373,7 +398,7 @@ export component ViewerWindow inherits Window {
                             }
                             Rule { }
                             Text { text: "WINDOWS INTEGRATION"; color: Theme.muted; font-size: 10px; font-weight: 600; height: 24px; }
-                            Text { text: "Images: JPG, PNG, GIF, WebP, AVIF, JPEG XL, HEIC, SVG, BMP, TIFF, ICO, RAW and more\nVideos: MP4, MOV, WebM, MKV (Windows codecs)"; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
+                            Text { text: "Images: JPG, PNG, GIF, WebP, AVIF, JPEG XL, HEIC, SVG, BMP, TIFF, ICO, RAW and more\nVideos: MP4, MOV, WebM, MKV (Windows codecs)\nAudio: MP3, M4A, AAC, WAV, FLAC, Ogg, Opus, WMA (Windows codecs)"; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
                             Tool { menu: true; filled: true; label: "Register Kova Image for Open with"; clicked => { root.command("register"); } }
                             Tool { menu: true; label: "Show previews in Explorer (WebP, AVIF, SVG, RAW...)"; clicked => { root.command("previews"); } }
                             Tool { menu: true; label: "Remove Explorer previews"; clicked => { root.command("previews-off"); } }

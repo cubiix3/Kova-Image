@@ -1,4 +1,5 @@
 pub mod animation;
+pub mod audio;
 pub mod cache;
 mod codecs;
 pub mod decoder;
