@@ -15,7 +15,7 @@ rights and calls the documented Windows Registry and Shell APIs:
 | --- | --- |
 | `Software\Kova\Image\Capabilities` | Application metadata and supported file associations |
 | `Software\RegisteredApplications`, value `Kova Image` | Windows Default Apps discovery |
-| `Software\Classes\KovaImage.Image` / `KovaImage.Video` | Descriptions, icon and quoted open command |
+| `Software\Classes\KovaImage.Image` / `KovaImage.Video` / `KovaImage.Audio` | Descriptions, icon and quoted open command |
 | `Software\Classes\Applications\kova-image.exe` | Friendly name, executable command and SupportedTypes |
 | `Software\Classes\.<extension>\OpenWithProgids` | Add only Kova's own ProgID value |
 
@@ -28,6 +28,7 @@ Images: JPG/JPEG/JPE, PNG/APNG, GIF, WebP, BMP, TIF/TIFF, ICO, TGA, PBM/PGM/PPM/
 QOI, DDS, HDR, EXR, farbfeld (FF), JXL, AVIF, HEIC/HEIF, SVG/SVGZ and the camera RAW
 extensions listed in `src/format.rs`.
 Videos: MP4/M4V, MOV, WebM and MKV, subject to installed Windows codecs.
+Audio: MP3, M4A/M4B, AAC, WAV, FLAC, OGG/OGA, Opus and WMA, subject to installed Windows codecs.
 Only formats Kova Image can decode are advertised.
 
 No extension default value, protected `UserChoice`, hash or another program's

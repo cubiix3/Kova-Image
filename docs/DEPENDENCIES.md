@@ -117,6 +117,15 @@ Primary references: [Slint license](https://github.com/slint-ui/slint/blob/cf62c
 [RustSec](https://rustsec.org/advisories/),
 [zenavif metadata](https://crates.io/crates/zenavif/0.1.6).
 
+## Audio
+
+No Cargo package was added for audio. The player is the Media Foundation Media Engine
+used for video, in its audio-only mode, so Windows supplies the container parsers and the
+decoders (MP3, AAC, WAV, FLAC and WMA are included; Ogg Vorbis and Opus need Microsoft's
+free "Web Media Extensions"). The tags and covers are read by about 500 lines of own code (and as many of tests)
+in `src/audio.rs` (ID3v1/v2, MP4 `ilst` atoms, FLAC blocks) with fixed limits; the cover is
+decoded by the viewer's own image decoders.
+
 ## Local video addition
 
 No Cargo package was added. Selected features on the existing windows-rs binding

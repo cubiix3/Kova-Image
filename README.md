@@ -5,7 +5,7 @@
 <h1 align="center">Kova Image</h1>
 
 <p align="center">
-  <b>A fast, quiet image and video viewer for Windows.</b><br>
+  <b>A fast, quiet image, video and audio viewer for Windows.</b><br>
   Native Rust. No accounts, no cloud, no telemetry. Just your files.
 </p>
 
@@ -44,7 +44,7 @@ and official Windows APIs**. It is a sibling of
 [Kova Screen](https://github.com/cubiix3/Kova-Screen).
 
 > [!NOTE]
-> **Early development, version 0.2.1.** Kova Image is ready to try, with known
+> **Early development, version 0.3.0.** Kova Image is ready to try, with known
 > limitations. Release builds are unsigned, so Windows SmartScreen warns on
 > first run. See the [validation record](docs/VALIDATION.md) for what has been
 > tested.
@@ -55,6 +55,7 @@ and official Windows APIs**. It is a sibling of
 | --- | --- |
 | ⚡ **Instant navigation** | The current image always wins. Once you pause on a picture, the next two files in your direction of travel are decoded in advance. |
 | 🎞️ **Animations and video** | GIF, APNG and animated WebP with correct timing and loops. Local MP4, MOV and MKV through Windows Media Foundation. |
+| 🎵 **Audio** | MP3, M4A, AAC, WAV, FLAC and WMA play with the video controls, and the next song in the folder is one key away. Title, artist and cover are read from the file and shown. |
 | 🎨 **Real color** | Embedded ICC profiles are converted to sRGB. EXIF orientation is applied automatically. |
 | 📦 **Formats built in** | WebP, AVIF, HEIC, JPEG XL, SVG, camera RAW, DDS, TGA and more open without any Windows codec or extension, and Explorer can show their thumbnails. See [Supported formats](#supported-formats). |
 | 🧠 **Bounded memory** | Images are decoded at the size your view needs, and the cache is capped at 192 MiB of pixels. Photos up to 64 megapixels open without a full-size RGBA copy. |
@@ -90,13 +91,14 @@ unpack it anywhere and start `kova-image.exe`. Uninstall through
 kova-image.exe                                    # start screen
 kova-image.exe "C:\Pictures\example.png"          # open an image
 kova-image.exe "C:\Videos\example.mp4"            # open a video
+kova-image.exe "C:\Music\example.mp3"             # play a song
 kova-image.exe --software "C:\Pictures\photo.jpg" # CPU renderer instead of OpenGL
 kova-image.exe --register-file-associations       # per-user Open with registration
 ```
 
 Registration never touches the protected `UserChoice` defaults; Windows keeps
-the final say. See [file associations](docs/FILE_ASSOCIATIONS.md). Video needs
-the Windows Media Foundation components, which Windows N editions may lack.
+the final say. See [file associations](docs/FILE_ASSOCIATIONS.md). Video and audio
+need the Windows Media Foundation components, which Windows N editions may lack.
 
 </details>
 
@@ -109,6 +111,7 @@ the Windows Media Foundation components, which Windows N editions may lack.
 | **View** | Fit to window, fit width, 100%, zoom around the cursor, pan, rotate and flip. A faint grid shows through transparent images. The view is never written back to the file. |
 | **Animation** | Pause and resume, per-frame timing, loop counts, and the first frame appears while the rest decodes. |
 | **Video** | Play/pause, timeline, elapsed and total time, volume, mute and optional looping. Video keeps playing while you drag the window. |
+| **Audio** | The same controls for MP3, M4A/M4B, AAC, WAV, FLAC and WMA. The cover picture is shown large, or a panel with the title when the file has none; the file information lists title, artist, album and format. Autoplay, looping and the slideshow work as for video. Ogg Vorbis and Opus play only where Windows has a decoder for them (Microsoft's free Web Media Extensions); otherwise a clear message says so. |
 | **Windows actions** | Copy the image, the file itself or its path, move to the Recycle Bin and undo, Show in Explorer, Open with. Cloud-sync placeholders (OneDrive and similar) are accepted; this is not yet tested against a live provider. |
 | **Explorer previews** | Per user, an installer task that is on by default, also in the menu (**Show previews in Explorer**, or `kova-image.exe --register-thumbnails`). Explorer and the file dialogs then show thumbnails for every format Kova Image opens, such as WebP, AVIF, HEIC, JPEG XL, SVG, camera RAW, TGA and DDS. For PNG, JPEG, GIF, BMP, TIFF and ICO, Windows' own provider still makes the preview whenever the file really is one, so those look exactly as before; Kova decodes only what Windows cannot read, such as a TGA that is named `.png`. Another program's working preview is not replaced (the DDS provider of texture tools is, on purpose); a leftover provider whose DLL is gone is. It uses `kova_thumbnails.dll`, which carries the same decoders and limits; **Remove Explorer previews** (or `--unregister-thumbnails`) removes it again. |
 | **Interface** | Dark, compact chrome, fullscreen, auto-hiding controls, brief on-screen feedback and visible keyboard focus. |
@@ -132,6 +135,7 @@ the Windows Media Foundation components, which Windows N editions may lack.
 | **TGA, PNM, QOI, HDR, EXR, farbfeld** | Still image. Float formats are tone-mapped to sRGB. |
 | **MP4 / M4V, MOV, MKV** | Through Windows codecs; H.264/AAC is tested |
 | **WebM** | Plays if a Windows codec is installed, otherwise shows a clear error |
+| **MP3, M4A, AAC, WAV, FLAC, WMA, Ogg, Opus** | Audio through Windows codecs, with title, artist, album and cover read from ID3 tags, MP4 atoms and FLAC blocks. A FLAC shorter than one second reports no duration in Windows and is refused. |
 
 Formats are detected from file content; the extension decides only for formats
 without a signature (TGA, SVG, RAW). A file with an image extension and a valid
@@ -154,7 +158,7 @@ the [video architecture](docs/VIDEO.md) for details.
 | Fullscreen | `F11` or double-click; `Esc` to leave |
 | Pause / play | `Space` |
 | Slideshow | `F5`; `Esc` stops it |
-| Seek video 5 s | `Ctrl+←` / `Ctrl+→` |
+| Seek video or audio 5 s | `Ctrl+←` / `Ctrl+→` |
 | Mute | `M` |
 | Rotate right / left | `R` / `Shift+R` |
 | Flip horizontal / vertical | `H` / `V` |
@@ -212,7 +216,8 @@ Packaging and the installer are described in
 - Folder scans read names and types only: no thumbnails, no database.
 - Video runs on its own worker. Media Foundation keeps audio and video in sync,
   only the latest frame is kept, and presentation is capped at 3840 × 2160.
-  Minimizing pauses playback.
+  Minimizing pauses playback. Audio uses the same worker without a graphics
+  device and checks its clock only ten times a second.
 
 Numbers and methodology: [performance protocol](docs/PERFORMANCE.md) ·
 [video measurements](docs/VIDEO_MEASUREMENTS.md) · [design notes](docs/DESIGN.md)
@@ -222,7 +227,7 @@ Numbers and methodology: [performance protocol](docs/PERFORMANCE.md) ·
 <details>
 <summary><b>Security</b></summary>
 
-- Every image and video is untrusted input. Dimensions are checked with
+- Every image, video and audio file is untrusted input. Dimensions are checked with
   overflow-safe arithmetic, and file size, decoded pixels and animation frames
   have hard limits.
 - Files are opened without following reparse points and locked against

@@ -1,4 +1,4 @@
-# Local video
+# Local video and audio
 
 Kova Image uses Windows Media Foundation Media Engine through the existing
 windows-rs dependency. No FFmpeg/libVLC/mpv engine, browser, external playback
@@ -56,13 +56,47 @@ Native codecs may allocate before reporting dimensions. These are application
 admission limits, not a total-process RAM cap or decoder sandbox. Rust cannot
 catch native access violations. OS codec/device loss, hostile-file corpora,
 rotation metadata, HDR/color management, unusual aspect ratios and Windows N
-installations need broader validation. No subtitles, streaming, audio-only
-mode, DRM or codec settings are provided.
+installations need broader validation. No subtitles, streaming, playlists, DRM
+or codec settings are provided; audio files are played as described below.
+
+## Audio
+
+Audio files go through the same admission, player and controls as video; the
+player runs Media Engine in its audio-only mode, so no Direct3D device is created
+and nothing is drawn per frame. The state is checked ten times a second.
+
+- Formats, identified by content (an extension decides only for a bare MPEG or ADTS
+  stream): MP3 (with or without ID3 tag), M4A/M4B (MP4 audio, by brand or extension),
+  AAC (ADTS), WAV, FLAC, Ogg Vorbis, Opus and WMA (ASF with the `.wma` extension).
+  Windows must have a decoder for the actual codec; Windows decodes MP3, AAC, WAV,
+  FLAC and WMA itself, but not Ogg Vorbis or Opus, which need Microsoft's free
+  "Web Media Extensions" from the Microsoft Store. Without them a clear message
+  says so (`MF_E_UNSUPPORTED_BYTESTREAM_TYPE`).
+- M4A files are checked for external data references like MP4. WMA (ASF) files are
+  handed to Windows' own ASF source without inspection by Kova Image.
+- Windows reports no duration for a FLAC shorter than about one second, and such a
+  file is refused with "Invalid or unsupported media duration". WAV variants that
+  Media Foundation does not read (big-endian RIFX, RF64) are not admitted.
+- `src/audio.rs` reads the title, artist, album and cover before playback:
+  ID3v2.2 to 2.4 and ID3v1 (MP3, and AAC or FLAC with a tag in front), the iTunes
+  `ilst` atoms of M4A, and the Vorbis comment and picture blocks of FLAC. Tags are
+  best effort and bounded (16 MiB for a tag or block, 32 MiB for `moov`, 16 MiB for
+  a picture, 200 characters for a text, at most 10,000 comments); a damaged tag is
+  ignored. The cover is decoded by the viewer's own image decoders at the size of
+  the window and is not enlarged. WAV, Ogg, Opus and WMA show no tags.
+- A song with a cover shows it like a picture; one without shows a panel with the
+  title (or the file name), artist and album. The file information lists the tags.
+- Navigation, autoplay, looping, volume, mute, minimizing, the slideshow and
+  Ctrl+Left/Right seeking work as for video. Image transforms do not apply.
 
 ## Reproducible checks
 
 ```powershell
 python scripts/video-fixtures.py
+python scripts/audio-fixtures.py
+cargo run --locked --example audio_probe -- tests/fixtures/tone.mp3
+cargo run --locked --example audio_scan -- list-of-audio-paths.txt
+python scripts/ui-smoke.py --state=audio
 cargo run --locked --example video_probe -- artifacts/video-fixtures/clip1.mp4
 cargo run --locked --example video_probe -- artifacts/video-fixtures/clip2.mov
 cargo run --locked --example video_probe -- artifacts/video-fixtures/clip4.mkv

@@ -95,6 +95,25 @@ captures are published in documentation. See [DESIGN.md](DESIGN.md).
   The check found and led to fixes for: TGA files named `.dds` or `.png`, 8 bit
   palettized DDS, APNG, and a leftover preview handler of an uninstalled program.
   It does not prove clean-machine behaviour or other users' registry states.
+- Audio (MP3, M4A, AAC, WAV, FLAC, Ogg Vorbis, Opus, WMA) was checked with generated
+  files (`scripts/audio-fixtures.py`; admission, tags, covers and damaged files in
+  `tests/audio.rs`), with the opt-in `examples/audio_probe.rs`, which plays a file through
+  Media Foundation (muted) with pause, seek, end, loop and release of the file, and with
+  `scripts/ui-smoke.py --state=audio` (cover, panel without cover, file information,
+  error state, return to images). Every generated format plays twelve times out of twelve,
+  except Ogg Vorbis and Opus, which this Windows refuses without Microsoft's "Web Media
+  Extensions" and which show a message that names them.
+  The 1,729 audio files on the development machine (1,672 WAV, 43 MP3, 9 FLAC, mostly
+  game sounds and music) were read with `examples/audio_scan.rs`: all were admitted except
+  five unusual WAV variants (big-endian RIFX, RF64) that Windows does not play either; tags
+  came from 10 files and a cover from 1. All 43 MP3 and 24 chosen WAV files, down to a sound
+  of 10 milliseconds, played to the end and looped. This found that sounds shorter than the
+  state report interval left the display on the old state after being played again; every
+  command now causes an immediate report. FLAC files shorter than about one second report
+  no duration in Windows and are refused, and some of those play unreliably.
+  Not tested: audible output (the checks are muted), Bluetooth or exclusive-mode devices,
+  a clean machine, and text in legacy code pages (Korean tags in "Latin-1" fields show as
+  Latin-1, as in other players on a Western Windows).
 - Embedded ICC profiles are converted to sRGB. Monitor profiles, HDR and a wide
   color corpus are not. Fuzzing and decoder process isolation remain future work.
 - Cache budgets do not include every decoder scratch allocation, copied renderer

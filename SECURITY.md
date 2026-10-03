@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Kova Image 0.2.1 is **Early Development**. Security fixes target the current
+Kova Image 0.3.0 is **Early Development**. Security fixes target the current
 `main` branch. No stable release or long-term support commitment exists yet.
 Use the newest reviewed source; do not assume older preview builds are supported.
 
@@ -24,7 +24,7 @@ No response-time guarantee is made during early development.
 
 Every opened image (JPEG, PNG/APNG, GIF, WebP, BMP, TIFF, ICO, AVIF, HEIC/HEIF,
 JPEG XL, SVG, camera RAW, TGA, PNM, QOI, DDS, HDR, EXR and farbfeld) and every
-MP4/MOV/WebM/MKV video is **untrusted input**. If you enable Explorer previews,
+MP4/MOV/WebM/MKV video and MP3/M4A/AAC/WAV/FLAC/Ogg/Opus/WMA audio file is **untrusted input**. If you enable Explorer previews,
 the thumbnail provider decodes such files for every program that shows
 thumbnails, without the user opening them.
 Decoder failures, parser bugs, overflow, memory exhaustion, animation corruption,
@@ -39,8 +39,9 @@ These measures are **not process isolation**: allocator aborts, native faults,
 codec scratch allocations and GPU memory remain limitations. Read
 [security architecture](docs/SECURITY_ARCHITECTURE.md) before assessing claims.
 
-Native video parsing uses installed Windows Media Foundation components. Local
-streams are admitted without user URLs; external MP4/MOV data references and
-compressed/reference movies are rejected. No codecs are downloaded. Native
+Native video and audio parsing uses installed Windows Media Foundation components.
+Local streams are admitted without user URLs; external MP4/MOV/M4A data references
+and compressed/reference movies are rejected. Kova Image itself reads only the
+tags and the cover picture of an audio file, within fixed limits. No codecs are downloaded. Native
 codec faults and allocations are not isolated by Rust panic recovery. See
 [video boundaries](docs/VIDEO.md) when reporting playback or parser problems.

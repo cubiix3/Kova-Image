@@ -99,7 +99,7 @@ code as the viewer; nothing is duplicated. It is registered per user by
 registered. See [FILE_ASSOCIATIONS.md](FILE_ASSOCIATIONS.md#explorer-previews)
 and [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md#explorer-thumbnail-provider).
 
-## Local video
+## Local video and audio
 
 `media` owns mixed-format classification and bounded local container admission.
 `video` owns a coalesced desired-state mailbox and a dedicated MTA worker.
