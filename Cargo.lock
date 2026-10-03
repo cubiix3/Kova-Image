@@ -2793,7 +2793,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "kova-image"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "flate2",
  "gif",
@@ -2814,7 +2814,7 @@ dependencies = [
 
 [[package]]
 name = "kova-thumbnails"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "image",
  "kova-image",
