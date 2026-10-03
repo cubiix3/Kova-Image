@@ -13,8 +13,8 @@ colour is marked FLAT: right for a plain texture, suspicious for anything else.
 .PARAMETER Folder      Folder to check.
 .PARAMETER Recurse     Include sub folders.
 .PARAMETER Extensions  Only these extensions (without the dot).
-.PARAMETER SaveTo      Save every thumbnail as PNG there, named after the file with '__' for
-                       folder separators; scripts/preview-crosscheck.py compares them with an
+.PARAMETER SaveTo      Save every thumbnail as PNG there, named like the file plus '.png' and in the
+                       same sub folders; scripts/preview-crosscheck.py compares them with an
                        independent decoder.
 .PARAMETER FailuresOnly  List only the files without a thumbnail.
 
@@ -124,7 +124,8 @@ if ($Extensions) { $files = $files | Where-Object { $Extensions -contains $_.Ext
 $rows = foreach ($file in $files | Sort-Object Extension, FullName) {
     $ext = $file.Extension.TrimStart('.').ToLower()
     $relative = $file.FullName.Substring($rootLength)
-    $png = if ($SaveTo) { Join-Path $SaveTo (($relative -replace '[\\/]', '__') + '.png') } else { '' }
+    $png = if ($SaveTo) { Join-Path $SaveTo ($relative + '.png') } else { '' }
+    if ($png) { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $png) | Out-Null }
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $result = try { [ThumbCheck]::Fetch($file.FullName, [uint32]$Size, $png) } catch { "ERROR $($_.Exception.Message)" }
     $watch.Stop()

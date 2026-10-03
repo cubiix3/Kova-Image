@@ -74,7 +74,7 @@ for path in sorted(source.rglob("*")):
     if wanted and ext not in wanted:
         continue
     rel = str(path.relative_to(source))
-    thumb = thumbs / (rel.replace("\\", "__").replace("/", "__") + ".png")
+    thumb = thumbs / (rel + ".png")
     if not thumb.exists():
         results["skipped"] += 1
         continue
