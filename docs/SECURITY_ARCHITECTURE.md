@@ -134,8 +134,9 @@ video: regular local files up to 32 GiB, a retained read-only handle, no reparse
 other than cloud placeholders, content identification, and the box checks for M4A.
 Kova Image's own parsing of an audio file is limited to its tags (`src/audio.rs`):
 ID3v1/v2, MP4 `ilst` atoms and FLAC metadata blocks, read with positional reads, at
-most 16 MiB per tag or block and 32 MiB of `moov`, with bounded loops, in safe Rust and
-under `catch_unwind`; the cover picture goes through the viewer's image decoders and
+most 16 MiB per tag or block, 32 MiB of `moov` and 48 MiB per file in total, in pieces of
+1 MiB between which the request is checked (navigating away cancels the read), with
+bounded loops, in safe Rust and under `catch_unwind`; the cover picture goes through the viewer's image decoders and
 their limits. A test flips bytes in fixtures of every format and requires an error or a
 plain file, never a panic. WMA (ASF) containers are not inspected by Kova Image; Windows'
 own ASF source reads them, and its handling of URLs inside such files is not verified.

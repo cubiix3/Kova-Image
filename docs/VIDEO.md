@@ -81,8 +81,10 @@ and nothing is drawn per frame. The state is checked ten times a second.
   ID3v2.2 to 2.4 and ID3v1 (MP3, and AAC or FLAC with a tag in front), the iTunes
   `ilst` atoms of M4A, and the Vorbis comment and picture blocks of FLAC. Tags are
   best effort and bounded (16 MiB for a tag or block, 32 MiB for `moov`, 16 MiB for
-  a picture, 200 characters for a text, at most 10,000 comments); a damaged tag is
-  ignored. The cover is decoded by the viewer's own image decoders at the size of
+  a picture, 48 MiB read from one file in total, 200 characters for a text, at most
+  10,000 comments); a damaged tag is ignored. The file is read in pieces of 1 MiB and
+  reading stops as soon as another file is requested, so the single decode worker is
+  never kept busy by a tag. The cover is decoded by the viewer's own image decoders at the size of
   the window and is not enlarged. WAV, Ogg, Opus and WMA show no tags.
 - A song with a cover shows it like a picture; one without shows a panel with the
   title (or the file name), artist and album. The file information lists the tags.

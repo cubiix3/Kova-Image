@@ -13,6 +13,7 @@ use crate::{
     security::Ticket,
 };
 use std::{
+    cell::Cell,
     fs::File,
     io::Cursor,
     panic::{AssertUnwindSafe, catch_unwind},
@@ -22,6 +23,11 @@ use std::{
 /// The largest tag, metadata block or `moov` box that is read.
 const MAX_TAG_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_MOOV_BYTES: u64 = 32 * 1024 * 1024;
+/// Everything read from one file for its tags, all blocks together: a file with
+/// many large blocks must not keep the decode worker busy.
+const MAX_TOTAL_BYTES: u64 = 48 * 1024 * 1024;
+/// Reads are made in pieces of this size, and the request is checked in between.
+const READ_CHUNK: usize = 1024 * 1024;
 /// The largest cover picture that is decoded.
 const MAX_PICTURE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TEXT_CHARS: usize = 200;
@@ -48,7 +54,12 @@ pub fn read_info(
     ticket: &Ticket,
     target: Target,
 ) -> AudioInfo {
-    let source = FileBytes { file, length };
+    let source = FileBytes {
+        file,
+        length,
+        ticket,
+        budget: Cell::new(MAX_TOTAL_BYTES),
+    };
     let found = catch_unwind(AssertUnwindSafe(|| read_tags(&source, kind))).unwrap_or_default();
     let cover = found
         .picture
@@ -84,19 +95,33 @@ trait Bytes {
 struct FileBytes<'a> {
     file: &'a File,
     length: u64,
+    /// The request this is read for: reading stops when it is replaced.
+    ticket: &'a Ticket,
+    /// What may still be read from this file.
+    budget: Cell<u64>,
 }
 impl Bytes for FileBytes<'_> {
     fn length(&self) -> u64 {
         self.length
     }
     fn read(&self, at: u64, len: u64) -> Option<Vec<u8>> {
-        if len > MAX_TAG_BYTES.max(MAX_MOOV_BYTES) || at.checked_add(len)? > self.length {
+        if len > MAX_TAG_BYTES.max(MAX_MOOV_BYTES)
+            || len > self.budget.get()
+            || at.checked_add(len)? > self.length
+            || !self.ticket.is_current()
+        {
             return None;
         }
+        self.budget.set(self.budget.get() - len);
         let mut buffer = vec![0u8; len as usize];
         let mut done = 0;
         while done < buffer.len() {
-            match read_at(self.file, &mut buffer[done..], at + done as u64) {
+            // A slow disk or a cloud placeholder: look at the request between pieces.
+            if !self.ticket.is_current() {
+                return None;
+            }
+            let end = buffer.len().min(done + READ_CHUNK);
+            match read_at(self.file, &mut buffer[done..end], at + done as u64) {
                 Ok(0) | Err(_) => return None,
                 Ok(n) => done += n,
             }
@@ -887,6 +912,68 @@ mod tests {
         // Control characters and long texts are tidied.
         assert_eq!(tidy("a\u{0}b\nc"), "a b c");
         assert_eq!(tidy(&"x".repeat(1000)).chars().count(), MAX_TEXT_CHARS);
+    }
+
+    fn temporary_file(name: &str, bytes: &[u8]) -> (std::path::PathBuf, File) {
+        let path =
+            std::env::temp_dir().join(format!("kova-audio-unit-{}-{name}", std::process::id()));
+        std::fs::write(&path, bytes).unwrap();
+        let file = File::open(&path).unwrap();
+        (path, file)
+    }
+
+    #[test]
+    fn one_file_may_only_make_the_worker_read_so_much() {
+        let (path, file) = temporary_file("budget.bin", &vec![7u8; 4096]);
+        let ticket = crate::security::Generation::default().next();
+        let source = FileBytes {
+            file: &file,
+            length: 4096,
+            ticket: &ticket,
+            budget: Cell::new(3000),
+        };
+        assert!(source.read(0, 1000).is_some());
+        assert!(source.read(1000, 1000).is_some());
+        // 1000 of the budget are left: a bigger read is refused, a smaller one is not.
+        assert!(source.read(2000, 1500).is_none());
+        assert!(source.read(2000, 1000).is_some());
+        assert!(source.read(3000, 1).is_none());
+        // Reading past the end is refused as before.
+        let fresh = FileBytes {
+            budget: Cell::new(10_000),
+            ..source
+        };
+        assert!(fresh.read(4000, 200).is_none());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn reading_stops_when_the_request_is_replaced() {
+        let (path, file) = temporary_file("cancel.bin", &vec![1u8; 2048]);
+        let generation = crate::security::Generation::default();
+        let old = generation.next();
+        let source = FileBytes {
+            file: &file,
+            length: 2048,
+            ticket: &old,
+            budget: Cell::new(MAX_TOTAL_BYTES),
+        };
+        assert!(source.read(0, 16).is_some());
+        let _newer = generation.next();
+        assert!(source.read(0, 16).is_none());
+        // And a whole tag is not read for a request that nobody waits for any more.
+        let mut tag = b"ID3\x03\0\0\0\0\x04\0".to_vec();
+        tag.extend_from_slice(&[0; 512]);
+        let (tag_path, tag_file) = temporary_file("cancel-tag.mp3", &tag);
+        let stale = FileBytes {
+            file: &tag_file,
+            length: tag.len() as u64,
+            ticket: &old,
+            budget: Cell::new(MAX_TOTAL_BYTES),
+        };
+        assert!(read_tags(&stale, VideoKind::Mp3).title.is_none());
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(tag_path);
     }
 
     #[test]
