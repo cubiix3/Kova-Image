@@ -96,6 +96,7 @@ Root: HKCU; Subkey: "Software\Kova\Image"; Flags: uninsdeletekey dontcreatekey
 Root: HKCU; Subkey: "Software\Kova"; Flags: uninsdeletekeyifempty dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\KovaImage.Image"; Flags: uninsdeletekey dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\KovaImage.Video"; Flags: uninsdeletekey dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\KovaImage.Audio"; Flags: uninsdeletekey dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\Applications\kova-image.exe"; Flags: uninsdeletekey dontcreatekey
 Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: none; ValueName: "{#AppName}"; Flags: uninsdeletevalue dontcreatekey
 ; Only Kova's own ProgID value is removed from each extension's Open with list.
@@ -110,11 +111,62 @@ Root: HKCU; Subkey: "Software\Classes\.bmp\OpenWithProgids"; ValueType: none; Va
 Root: HKCU; Subkey: "Software\Classes\.tif\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\.tiff\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\.ico\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.tga\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.pbm\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.pgm\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.ppm\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.pnm\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.pam\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.qoi\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.dds\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.hdr\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.exr\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.ff\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.jxl\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.avif\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.heic\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.heif\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.svg\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.svgz\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.3fr\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.ari\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.arw\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.cr2\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.cr3\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.crw\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.dcr\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.dng\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.erf\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.iiq\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.kdc\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.mef\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.mrw\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.nef\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.nrw\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.orf\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.pef\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.raf\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.rw2\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.rwl\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.sr2\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.srf\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.srw\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.x3f\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Image"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\.mp4\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Video"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\.m4v\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Video"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\.mov\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Video"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\.webm\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Video"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\.mkv\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Video"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.mp3\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Audio"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.m4a\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Audio"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.m4b\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Audio"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.aac\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Audio"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.wav\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Audio"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.flac\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Audio"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.ogg\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Audio"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.oga\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Audio"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.opus\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Audio"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\.wma\OpenWithProgids"; ValueType: none; ValueName: "KovaImage.Audio"; Flags: uninsdeletevalue dontcreatekey
 
 [UninstallDelete]
 ; Inno removes every installed file, but leaves the nested payload folders

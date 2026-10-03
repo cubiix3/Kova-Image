@@ -3,6 +3,22 @@ use kova_image::{
     media::VideoSource,
     video::{Player, Update, VideoState},
 };
+/// The cover of an audio file as a picture for the window.
+fn cover_picture(cover: &kova_image::decoder::Decoded) -> slint::Image {
+    let (width, height) = (cover.width, cover.height);
+    cover
+        .frames
+        .first()
+        .filter(|f| f.rgba.len() == width as usize * height as usize * 4)
+        .map_or_else(slint::Image::default, |frame| {
+            slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
+                &frame.rgba,
+                width,
+                height,
+            ))
+        })
+}
+
 struct PresentedVideo {
     id: u64,
     state: Result<VideoState, Error>,
@@ -69,6 +85,9 @@ impl App {
         self.displayed = Some(path.clone());
         self.video_stamp = Some(source.stamp.clone());
         self.video_kind = Some(source.kind);
+        self.audio_info = source.audio.clone();
+        let audio = source.kind.is_audio();
+        let cover = source.audio.as_ref().and_then(|a| a.cover.clone());
         // A slideshow plays every video once, whatever the saved settings say.
         let autoplay = self.settings.video_autoplay || self.slideshow;
         let looping = self.settings.video_loop && !self.slideshow;
@@ -77,8 +96,23 @@ impl App {
         if let Some(ui) = self.ui.upgrade() {
             ui.set_muted(self.muted);
             ui.set_is_video(true);
+            ui.set_is_audio(audio);
             ui.set_has_image(false);
-            ui.set_picture(slint::Image::default());
+            ui.set_has_cover(cover.is_some());
+            // A cover is shown once the file is ready, with the controls.
+            ui.set_picture(
+                cover
+                    .as_deref()
+                    .map_or_else(slint::Image::default, cover_picture),
+            );
+            let tags = source
+                .audio
+                .as_ref()
+                .map(|a| a.tags.clone())
+                .unwrap_or_default();
+            ui.set_audio_title(tags.title.as_str().into());
+            ui.set_audio_artist(tags.artist.as_str().into());
+            ui.set_audio_album(tags.album.as_str().into());
             ui.set_animated(true);
             ui.set_paused(self.paused);
             ui.set_filename(
@@ -116,7 +150,12 @@ impl App {
                     self.media_error(path, error);
                 }
             }
-            Ok(state) => {
+            Ok(mut state) => {
+                let audio = self.video_kind.is_some_and(|k| k.is_audio());
+                if audio {
+                    // Sound has no frame size; the cover, if any, sets the view.
+                    (state.width, state.height) = self.audio_size();
+                }
                 ui.set_time_label(
                     format!(
                         "{} / {}",
@@ -150,6 +189,19 @@ impl App {
                         self.image_ready_without_notifier();
                     }
                 }
+                if first && audio {
+                    // No frame ever arrives: the first state shows the file.
+                    let was_loading = ui.get_loading();
+                    ui.set_has_image(true);
+                    ui.set_loading(false);
+                    if was_loading {
+                        self.media_shown(false);
+                        self.wake_chrome();
+                    }
+                    if !self.render_notifications {
+                        self.image_ready_without_notifier();
+                    }
+                }
                 if first {
                     self.update_view();
                     self.video_info();
@@ -166,11 +218,14 @@ impl App {
         self.video_state = None;
         self.video_stamp = None;
         self.video_kind = None;
+        self.audio_info = None;
         if let Some(ui) = self.ui.upgrade() {
             ui.set_picture(slint::Image::default());
             ui.set_has_image(false);
+            ui.set_has_cover(false);
             ui.set_loading(false);
             ui.set_is_video(false);
+            ui.set_is_audio(false);
             ui.set_animated(false);
             ui.set_image_detail("".into());
             ui.set_info_fields(slint::ModelRc::default());
@@ -194,6 +249,14 @@ impl App {
             ui.set_status("".into());
         }
         self.slideshow_after_error();
+    }
+    /// The size of the picture an audio file is shown with: its cover, or a
+    /// nominal pixel when there is none (the panel does not scale).
+    fn audio_size(&self) -> (u32, u32) {
+        self.audio_info
+            .as_ref()
+            .and_then(|a| a.cover.as_ref())
+            .map_or((1, 1), |c| (c.width.max(1), c.height.max(1)))
     }
     pub(super) fn seek_video(&mut self, value: f64, fraction: bool) {
         if let (Some(player), Some(state)) = (&self.video, &self.video_state) {
@@ -234,43 +297,73 @@ impl App {
             &self.video_stamp,
             &self.displayed,
         ) {
-            let format = self.video_kind.map(|k| k.name()).unwrap_or("Video");
-            ui.set_image_detail(
+            let audio = self.video_kind.is_some_and(|k| k.is_audio());
+            let format =
+                self.video_kind
+                    .map(|k| k.name())
+                    .unwrap_or(if audio { "Audio" } else { "Video" });
+            let tags = self
+                .audio_info
+                .as_ref()
+                .map(|a| a.tags.clone())
+                .unwrap_or_default();
+            let duration = kova_image::video::time_label(state.duration);
+            let detail = if audio {
+                let who = [tags.artist.as_str(), tags.title.as_str()]
+                    .into_iter()
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" \u{2014} ");
+                if who.is_empty() {
+                    format!("{format}  \u{b7}  {duration}")
+                } else {
+                    format!("{format}  \u{b7}  {duration}  \u{b7}  {who}")
+                }
+            } else {
                 format!(
-                    "{format}  ·  {} × {}  ·  {}",
-                    state.width,
-                    state.height,
-                    kova_image::video::time_label(state.duration)
+                    "{format}  \u{b7}  {} \u{d7} {}  \u{b7}  {duration}",
+                    state.width, state.height
                 )
-                .into(),
-            );
-            let fields = [
-                (
-                    "Name",
-                    path.file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned(),
-                ),
-                ("Container", format.into()),
-                (
+            };
+            ui.set_image_detail(detail.into());
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let mut fields = vec![("Name", name)];
+            if audio {
+                for (label, value) in [
+                    ("Title", tags.title),
+                    ("Artist", tags.artist),
+                    ("Album", tags.album),
+                ] {
+                    if !value.is_empty() {
+                        fields.push((label, value));
+                    }
+                }
+                fields.push(("Format", format.into()));
+            } else {
+                fields.push(("Container", format.into()));
+                fields.push((
                     "Dimensions",
-                    format!("{} × {} px", state.width, state.height),
-                ),
-                ("Duration", kova_image::video::time_label(state.duration)),
-                (
-                    "File size",
-                    format!("{:.2} MiB", stamp.bytes as f64 / 1048576.),
-                ),
-                ("Playback", "Windows Media Foundation".into()),
-                ("Location", path.to_string_lossy().into_owned()),
-            ]
-            .into_iter()
-            .map(|(label, value)| crate::ui::InfoField {
-                label: label.into(),
-                value: value.into(),
-            })
-            .collect::<Vec<_>>();
+                    format!("{} \u{d7} {} px", state.width, state.height),
+                ));
+            }
+            fields.push(("Duration", duration));
+            fields.push((
+                "File size",
+                format!("{:.2} MiB", stamp.bytes as f64 / 1048576.),
+            ));
+            fields.push(("Playback", "Windows Media Foundation".into()));
+            fields.push(("Location", path.to_string_lossy().into_owned()));
+            let fields = fields
+                .into_iter()
+                .map(|(label, value)| crate::ui::InfoField {
+                    label: label.into(),
+                    value: value.into(),
+                })
+                .collect::<Vec<_>>();
             ui.set_info_fields(slint::ModelRc::new(slint::VecModel::from(fields)));
         }
     }

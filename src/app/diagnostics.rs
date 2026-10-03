@@ -85,8 +85,11 @@ impl App {
                     ui.get_can_previous(), ui.get_can_next(), ui.get_error_title()
                 ));
                 state.push_str(&format!(
-                    "video={}\nvideo_position={}\nvideo_duration={}\nmuted={}\nvolume={}\n",
+                    "video={}\naudio={}\ncover={}\naudio_title={}\nvideo_position={}\nvideo_duration={}\nmuted={}\nvolume={}\n",
                     ui.get_is_video(),
+                    ui.get_is_audio(),
+                    ui.get_has_cover(),
+                    ui.get_audio_title(),
                     self.video_state.as_ref().map(|s| s.position).unwrap_or(0.),
                     self.video_state.as_ref().map(|s| s.duration).unwrap_or(0.),
                     self.muted,

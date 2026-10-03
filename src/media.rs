@@ -1,5 +1,7 @@
-//! Shared media admission. Container names are not codec-support promises.
-use crate::{decoder::Stamp, error::Error, security::Ticket};
+//! Shared media admission for video and audio. Container names are not
+//! codec-support promises. The names say "video" for historical reasons; an
+//! audio file goes through the same admission and the same player.
+use crate::{audio::AudioInfo, decoder::Stamp, error::Error, security::Ticket};
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom},
@@ -9,13 +11,29 @@ use std::{
 
 pub use crate::format::IMAGE_EXTENSIONS;
 pub const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv"];
+/// Audio files the player opens. What Windows has no codec for is reported as an
+/// error when the file is played, as for video.
+pub const AUDIO_EXTENSIONS: &[&str] = &[
+    "mp3", "m4a", "m4b", "aac", "wav", "flac", "ogg", "oga", "opus", "wma",
+];
 pub const MAX_VIDEO_BYTES: u64 = 32 * 1024 * 1024 * 1024;
+/// Bytes read from the start of a file to tell what it is.
+const HEAD_BYTES: usize = 64;
 
+/// The kind of container a file has, found from its first bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VideoKind {
     Mp4,
     QuickTime,
     Matroska,
+    Mp3,
+    M4a,
+    Aac,
+    Wav,
+    Flac,
+    Ogg,
+    Opus,
+    Wma,
 }
 impl VideoKind {
     pub fn name(self) -> &'static str {
@@ -23,15 +41,125 @@ impl VideoKind {
             Self::Mp4 => "MP4",
             Self::QuickTime => "MOV",
             Self::Matroska => "WebM / MKV",
+            Self::Mp3 => "MP3",
+            Self::M4a => "M4A",
+            Self::Aac => "AAC",
+            Self::Wav => "WAV",
+            Self::Flac => "FLAC",
+            Self::Ogg => "Ogg Vorbis",
+            Self::Opus => "Opus",
+            Self::Wma => "WMA",
         }
     }
+    /// The file name the player is told, so that Media Foundation picks the right
+    /// handler for a byte stream that has no name.
     pub fn hint(self) -> &'static str {
         match self {
             Self::Mp4 => "kova.mp4",
             Self::QuickTime => "kova.mov",
             Self::Matroska => "kova.mkv",
+            Self::Mp3 => "kova.mp3",
+            Self::M4a => "kova.m4a",
+            Self::Aac => "kova.aac",
+            Self::Wav => "kova.wav",
+            Self::Flac => "kova.flac",
+            Self::Ogg => "kova.ogg",
+            Self::Opus => "kova.opus",
+            Self::Wma => "kova.wma",
         }
     }
+    /// Sound only: no picture is decoded, the player runs without a graphics device.
+    pub fn is_audio(self) -> bool {
+        !matches!(self, Self::Mp4 | Self::QuickTime | Self::Matroska)
+    }
+    /// ISO base media files carry boxes that can point at other files.
+    fn is_base_media(self) -> bool {
+        matches!(self, Self::Mp4 | Self::QuickTime | Self::M4a)
+    }
+}
+
+fn extension_is(extension: Option<&str>, list: &[&str]) -> bool {
+    extension.is_some_and(|e| list.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+/// The Windows Media (ASF) header object.
+const ASF_HEADER: [u8; 16] = [
+    0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11, 0xa6, 0xd9, 0x00, 0xaa, 0x00, 0x62, 0xce, 0x6c,
+];
+/// An ID3v2 tag: version 2.2 to 2.4 and a size of four 7-bit bytes.
+fn id3v2_header(h: &[u8]) -> bool {
+    h.len() >= 10
+        && h.starts_with(b"ID3")
+        && (2..=4).contains(&h[3])
+        && h[4] != 0xff
+        && h[6..10].iter().all(|b| b & 0x80 == 0)
+}
+/// The start of an MPEG audio frame (layer I to III).
+fn mpeg_audio_frame(h: &[u8]) -> bool {
+    let [a, b, c, ..] = h else { return false };
+    *a == 0xff
+        && b & 0xe0 == 0xe0
+        && (b >> 3) & 3 != 1 // reserved version
+        && (b >> 1) & 3 != 0 // reserved layer
+        && c >> 4 != 0xf // bad bitrate
+        && (c >> 2) & 3 != 3 // reserved sample rate
+}
+/// The start of an ADTS (raw AAC) frame.
+fn adts_frame(h: &[u8]) -> bool {
+    let [a, b, c, ..] = h else { return false };
+    *a == 0xff && b & 0xf6 == 0xf0 && (c >> 2) & 0xf < 13
+}
+/// Finds an audio container. The signatures of FLAC, Ogg, WAV and ID3 are
+/// strong; a bare MPEG or ADTS frame is only believed with an audio extension.
+pub fn audio_magic(header: &[u8], extension: Option<&str>) -> Option<VideoKind> {
+    if id3v2_header(header) {
+        // A tag in front of whatever follows; the extension tells what that is.
+        return Some(if extension_is(extension, &["flac"]) {
+            VideoKind::Flac
+        } else if extension_is(extension, &["aac"]) {
+            VideoKind::Aac
+        } else {
+            VideoKind::Mp3
+        });
+    }
+    if header.starts_with(b"fLaC") {
+        return Some(VideoKind::Flac);
+    }
+    if header.starts_with(b"OggS") && header.get(4) == Some(&0) {
+        return Some(if header.get(28..36) == Some(b"OpusHead".as_slice()) {
+            VideoKind::Opus
+        } else {
+            VideoKind::Ogg
+        });
+    }
+    if header.len() >= 12 && &header[..4] == b"RIFF" && &header[8..12] == b"WAVE" {
+        return Some(VideoKind::Wav);
+    }
+    // ASF also holds Windows Media video, which is not played.
+    if header.starts_with(&ASF_HEADER) {
+        return extension_is(extension, &["wma"]).then_some(VideoKind::Wma);
+    }
+    if extension_is(extension, AUDIO_EXTENSIONS) {
+        if adts_frame(header) {
+            return Some(VideoKind::Aac);
+        }
+        if mpeg_audio_frame(header) {
+            return Some(VideoKind::Mp3);
+        }
+    }
+    None
+}
+/// Video or audio, from the first bytes and the extension.
+pub fn media_magic(header: &[u8], extension: Option<&str>) -> Option<VideoKind> {
+    if let Some(kind) = audio_magic(header, extension) {
+        return Some(kind);
+    }
+    let kind = video_magic(header)?;
+    // A song or an audiobook in an MP4 container: by brand, or by extension.
+    let audio_brand = matches!(header.get(8..12), Some(b"M4A " | b"M4B " | b"M4P "));
+    if kind == VideoKind::Mp4 && (audio_brand || extension_is(extension, &["m4a", "m4b"])) {
+        return Some(VideoKind::M4a);
+    }
+    Some(kind)
 }
 pub fn video_magic(header: &[u8]) -> Option<VideoKind> {
     if header.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
@@ -55,24 +183,32 @@ pub fn video_magic(header: &[u8]) -> Option<VideoKind> {
         .contains(&atom.try_into().ok()?)
         .then_some(VideoKind::QuickTime)
 }
+fn path_extension(path: &Path) -> Option<&str> {
+    path.extension().and_then(|s| s.to_str())
+}
 pub fn video_extension(path: &Path) -> bool {
-    path.extension().and_then(|s| s.to_str()).is_some_and(|s| {
-        VIDEO_EXTENSIONS
-            .iter()
-            .any(|ext| s.eq_ignore_ascii_case(ext))
-    })
+    extension_is(path_extension(path), VIDEO_EXTENSIONS)
+}
+pub fn audio_extension(path: &Path) -> bool {
+    extension_is(path_extension(path), AUDIO_EXTENSIONS)
+}
+/// Whether the extension names a file the media player opens.
+pub fn media_extension(path: &Path) -> bool {
+    video_extension(path) || audio_extension(path)
 }
 pub fn probe(path: &Path) -> Result<Option<VideoKind>, Error> {
     let mut file = File::open(path)?;
-    let mut header = [0; 32];
+    let mut header = [0; HEAD_BYTES];
     let count = file.read(&mut header)?;
-    Ok(video_magic(&header[..count]))
+    Ok(media_magic(&header[..count], path_extension(path)))
 }
 #[derive(Clone)]
 pub struct VideoSource {
     pub file: Arc<File>,
     pub stamp: Stamp,
     pub kind: VideoKind,
+    /// Title, artist and cover of an audio file, read by the loader.
+    pub audio: Option<Arc<AudioInfo>>,
 }
 pub fn open_video(path: &Path, ticket: &Ticket) -> Result<VideoSource, Error> {
     ticket.check()?;
@@ -106,10 +242,10 @@ pub fn open_video(path: &Path, ticket: &Ticket) -> Result<VideoSource, Error> {
             "Video must be a regular local file no larger than 32 GiB".into(),
         ));
     }
-    let mut head = [0; 32];
+    let mut head = [0; HEAD_BYTES];
     let count = file.read(&mut head)?;
-    let kind = video_magic(&head[..count]).ok_or(Error::Unsupported)?;
-    if kind != VideoKind::Matroska {
+    let kind = media_magic(&head[..count], path_extension(path)).ok_or(Error::Unsupported)?;
+    if kind.is_base_media() {
         validate_bmff(&mut file, metadata.len(), ticket)?;
     }
     file.seek(SeekFrom::Start(0))?;
@@ -117,6 +253,7 @@ pub fn open_video(path: &Path, ticket: &Ticket) -> Result<VideoSource, Error> {
         file: Arc::new(file),
         stamp: Stamp::from_metadata(&metadata),
         kind,
+        audio: None,
     })
 }
 
@@ -227,5 +364,68 @@ mod tests {
         assert_eq!(video_magic(b"GIF89a"), None);
         assert!(video_extension(Path::new("A.MP4")));
         assert!(!video_extension(Path::new("a.mp4.exe")));
+    }
+
+    fn ogg_header(first_packet: &[u8]) -> Vec<u8> {
+        let mut h = b"OggS\0\x02".to_vec();
+        h.resize(28, 0);
+        h.extend_from_slice(first_packet);
+        h
+    }
+    #[test]
+    fn audio_containers_are_found_by_content() {
+        let kind = |header: &[u8], ext: Option<&str>| media_magic(header, ext);
+        assert_eq!(kind(b"fLaC\0\0\0\x22", None), Some(VideoKind::Flac));
+        assert_eq!(kind(b"RIFF\x24\0\0\0WAVEfmt ", None), Some(VideoKind::Wav));
+        assert_eq!(kind(&ogg_header(b"\x01vorbis"), None), Some(VideoKind::Ogg));
+        assert_eq!(kind(&ogg_header(b"OpusHead"), None), Some(VideoKind::Opus));
+        // An ID3v2 tag in front of MP3 (or of FLAC and AAC, which the extension tells).
+        let id3 = b"ID3\x03\0\0\0\0\x01\x7f....";
+        assert_eq!(kind(id3, None), Some(VideoKind::Mp3));
+        assert_eq!(kind(id3, Some("flac")), Some(VideoKind::Flac));
+        assert_eq!(kind(id3, Some("aac")), Some(VideoKind::Aac));
+        // A tag header needs a plausible version and 7-bit sizes.
+        assert_eq!(kind(b"ID3\x09\0\0\0\0\0\0", None), None);
+        assert_eq!(kind(b"ID3\x03\0\0\xff\0\0\0", None), None);
+        // Windows Media: ASF, but only as audio with the audio extension.
+        let asf = [
+            0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11, 0xa6, 0xd9, 0, 0xaa, 0, 0x62, 0xce,
+            0x6c,
+        ];
+        assert_eq!(kind(&asf, Some("wma")), Some(VideoKind::Wma));
+        assert_eq!(kind(&asf, Some("wmv")), None);
+        // A bare MPEG or ADTS frame is only believed with an audio extension.
+        assert_eq!(
+            kind(&[0xff, 0xfb, 0x90, 0x00], Some("mp3")),
+            Some(VideoKind::Mp3)
+        );
+        assert_eq!(kind(&[0xff, 0xfb, 0x90, 0x00], Some("dat")), None);
+        assert_eq!(kind(&[0xff, 0xfb, 0x90, 0x00], None), None);
+        assert_eq!(
+            kind(&[0xff, 0xf1, 0x50, 0x80], Some("aac")),
+            Some(VideoKind::Aac)
+        );
+        // Reserved bits are not a frame.
+        assert_eq!(kind(&[0xff, 0xe0, 0x90, 0x00], Some("mp3")), None);
+        assert_eq!(kind(&[0xff, 0xfb, 0xf0, 0x00], Some("mp3")), None);
+        // MP4 containers: a song by brand or extension, a film otherwise.
+        assert_eq!(
+            kind(b"\0\0\0\x18ftypM4A \0\0\0\0", None),
+            Some(VideoKind::M4a)
+        );
+        assert_eq!(
+            kind(b"\0\0\0\x18ftypisom\0\0\0\0", Some("m4a")),
+            Some(VideoKind::M4a)
+        );
+        assert_eq!(
+            kind(b"\0\0\0\x18ftypisom\0\0\0\0", Some("mp4")),
+            Some(VideoKind::Mp4)
+        );
+        // Images and plain text are not audio.
+        assert_eq!(kind(b"RIFF\x24\0\0\0WEBPVP8 ", Some("wav")), None);
+        assert_eq!(kind(b"hello world, this is text", Some("mp3")), None);
+        assert!(VideoKind::Flac.is_audio() && !VideoKind::Mp4.is_audio());
+        assert!(audio_extension(Path::new("a.MP3")) && !audio_extension(Path::new("a.mp4")));
+        assert!(media_extension(Path::new("a.mp4")) && media_extension(Path::new("a.opus")));
     }
 }

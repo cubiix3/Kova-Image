@@ -115,7 +115,7 @@ impl Loader {
                     let start = Instant::now();
                     // Content decides too, but only after the image decoders decline:
                     // that saves a file open for every ordinary picture.
-                    let mut video = crate::media::video_extension(&path);
+                    let mut video = crate::media::media_extension(&path);
                     let mut image = None;
                     if !video {
                         let outcome = cached_load(&mut cache, &path, &ticket, target, |image| {
@@ -142,7 +142,20 @@ impl Loader {
                         }
                     }
                     if video {
-                        let result = crate::media::open_video(&path, &ticket);
+                        let result = crate::media::open_video(&path, &ticket).map(|mut source| {
+                            // A song shows its cover and title, so read them now.
+                            if source.kind.is_audio() {
+                                let info = crate::audio::read_info(
+                                    &source.file,
+                                    source.stamp.bytes,
+                                    source.kind,
+                                    &ticket,
+                                    target,
+                                );
+                                source.audio = Some(Arc::new(info));
+                            }
+                            source
+                        });
                         if ticket.is_current() {
                             deliver(Event::Video {
                                 id: ticket.id,
@@ -185,7 +198,7 @@ impl Loader {
                         continue;
                     }
                     for neighbor in neighbors.into_iter().take(2) {
-                        if crate::media::video_extension(&neighbor) {
+                        if crate::media::media_extension(&neighbor) {
                             continue;
                         }
                         if !ticket.is_current() {

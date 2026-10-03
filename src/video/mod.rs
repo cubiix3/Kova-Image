@@ -1,4 +1,5 @@
-//! Lazy, bounded local-video worker. MF owns audio/video synchronization.
+//! Lazy, bounded local-video worker. MF owns audio/video synchronization. The
+//! same worker plays audio files, which have no picture.
 mod native;
 mod stream;
 use crate::{error::Error, media::VideoSource};
@@ -163,7 +164,11 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
     let (mut revision, mut controls) = (0, 0);
     let mut ready = false;
     let mut ended = false;
-    let mut reported_state = None;
+    let mut reported_state: Option<VideoState> = None;
+    // A command was just applied: tell the UI what became of it at once, even
+    // when the state looks the same as the last one reported (a sound of a few
+    // milliseconds ends again before the next check).
+    let mut report_now = false;
     let mut opened = Instant::now();
     let mut last_report = Instant::now();
     loop {
@@ -174,7 +179,9 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
             };
             if s.revision == revision && s.controls == controls && !s.quit {
                 if engine.is_some() {
-                    let wait = if s.paused || s.hidden || ended {
+                    // Sound has no frames to fetch: the time display needs far fewer checks.
+                    let audio = engine.as_ref().is_some_and(|e| e.audio_only());
+                    let wait = if s.paused || s.hidden || ended || audio {
                         Duration::from_millis(100)
                     } else {
                         Duration::from_millis(16)
@@ -235,7 +242,7 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
             let Some(state) = e.state()? else {
                 controls = desired.controls;
                 if opened.elapsed() > Duration::from_secs(20) {
-                    return Err(Error::Io("Video opening timed out".into()));
+                    return Err(Error::Io("Opening the media file timed out".into()));
                 }
                 return Ok(());
             };
@@ -249,6 +256,7 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
                     seek,
                 )?;
                 controls = desired.controls;
+                report_now = true;
             }
             let frame = if !desired.hidden {
                 e.frame(&state, desired.view_w, desired.view_h)?
@@ -256,11 +264,18 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
                 None
             };
             ended = state.ended;
+            // Pausing or ending is reported at once; a moving position only now and then.
+            let flags_changed = reported_state
+                .as_ref()
+                .is_some_and(|r| r.paused != state.paused || r.ended != state.ended);
             if !ready
                 || frame.is_some()
+                || report_now
+                || flags_changed
                 || (reported_state.as_ref() != Some(&state)
                     && last_report.elapsed() >= Duration::from_millis(250))
             {
+                report_now = false;
                 let state = e.state()?.unwrap_or(state);
                 reported_state = Some(state.clone());
                 deliver(Update {

@@ -180,7 +180,7 @@ pub fn register_executable(exe: &Path) -> Result<(), Error> {
     set(
         caps,
         "ApplicationDescription",
-        "Local images, animations and videos.",
+        "Local images, animations, videos and audio.",
     )?;
     set(caps, "ApplicationIcon", &icon)?;
     for (extensions, progid, description) in [
@@ -193,6 +193,11 @@ pub fn register_executable(exe: &Path) -> Result<(), Error> {
             media::VIDEO_EXTENSIONS,
             "KovaImage.Video",
             "Kova Image video",
+        ),
+        (
+            media::AUDIO_EXTENSIONS,
+            "KovaImage.Audio",
+            "Kova Image audio",
         ),
     ] {
         let class = format!(r"Software\Classes\{progid}");
@@ -278,5 +283,25 @@ mod tests {
             "\"C:\\Kova Test\\猫\\kova-image.exe\" -- \"%1\""
         );
         assert!(open_command(Path::new("relative.exe")).is_err());
+    }
+    /// The uninstaller can only remove what its script lists: every extension that
+    /// registration writes must be named there.
+    #[test]
+    fn the_installer_removes_the_open_with_entry_of_every_extension() {
+        let script = include_str!("../../packaging/kova-image.iss");
+        for (extensions, progid) in [
+            (media::IMAGE_EXTENSIONS, "KovaImage.Image"),
+            (media::VIDEO_EXTENSIONS, "KovaImage.Video"),
+            (media::AUDIO_EXTENSIONS, "KovaImage.Audio"),
+        ] {
+            for extension in extensions {
+                let line = format!(
+                    r#"Subkey: "Software\Classes\.{extension}\OpenWithProgids"; ValueType: none; ValueName: "{progid}""#
+                );
+                assert!(script.contains(&line), "{progid} .{extension}");
+            }
+            let class = format!(r#"Subkey: "Software\Classes\{progid}"; Flags: uninsdeletekey"#);
+            assert!(script.contains(&class), "{progid}");
+        }
     }
 }

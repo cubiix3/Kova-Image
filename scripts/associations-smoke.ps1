@@ -8,9 +8,10 @@ $exe=(Resolve-Path -LiteralPath $Executable).Path
 $images=@('jpg','jpeg','jpe','png','apng','gif','webp','bmp','tif','tiff','ico','tga','pbm','pgm','ppm','pnm','pam','qoi','dds','hdr','exr','ff','jxl','avif','heic','heif','svg','svgz',
     '3fr','ari','arw','cr2','cr3','crw','dcr','dng','erf','iiq','kdc','mef','mrw','nef','nrw','orf','pef','raf','rw2','rwl','sr2','srf','srw','x3f')
 $videos=@('mp4','m4v','mov','webm','mkv')
+$audio=@('mp3','m4a','m4b','aac','wav','flac','ogg','oga','opus','wma')
 function Read-Choices {
     $values=[ordered]@{}
-    foreach ($extension in ($images+$videos)) {
+    foreach ($extension in ($images+$videos+$audio)) {
         $key=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.$extension\UserChoice")
         try { $values[$extension]=if ($key) { @($key.GetValue('ProgId'),$key.GetValue('Hash')) } else { @() } }
         finally { if ($key) { $key.Dispose() } }
@@ -21,15 +22,15 @@ $before=Read-Choices
 $process=Start-Process -FilePath $exe -ArgumentList '--register-file-associations' -WindowStyle Hidden -Wait -PassThru
 if ($process.ExitCode -ne 0) { throw 'Registration failed.' }
 $expected='"'+$exe+'" -- "%1"'
-foreach ($kind in @('Image','Video')) {
+foreach ($kind in @('Image','Video','Audio')) {
     $key=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Classes\KovaImage.$kind\shell\open\command")
     try {if (!$key -or $key.GetValue('') -ne $expected) {throw "Incorrect $kind command."}}
     finally {if ($key) {$key.Dispose()}}
 }
 $caps=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Kova\Image\Capabilities\FileAssociations')
 try {
-    foreach ($extension in ($images+$videos)) {
-        $kind=if ($images -contains $extension) {'Image'} else {'Video'}
+    foreach ($extension in ($images+$videos+$audio)) {
+        $kind=if ($images -contains $extension) {'Image'} elseif ($videos -contains $extension) {'Video'} else {'Audio'}
         if ($caps.GetValue(".$extension") -ne "KovaImage.$kind") {throw "Missing .$extension capability."}
         $key=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Classes\.$extension\OpenWithProgids")
         try {if (!$key -or $key.GetValueNames() -notcontains "KovaImage.$kind") {throw "Missing .$extension Open with entry."}}
@@ -40,4 +41,4 @@ $registered=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Registe
 try {if ($registered.GetValue('Kova Image') -ne 'Software\Kova\Image\Capabilities') {throw 'Missing RegisteredApplications entry.'}}
 finally {$registered.Dispose()}
 if ((Read-Choices) -ne $before) {throw 'Windows default choices unexpectedly changed.'}
-Write-Output "PASS: $(($images+$videos).Count) format capabilities, quoted commands, Open with, RegisteredApplications; UserChoice unchanged."
+Write-Output "PASS: $(($images+$videos+$audio).Count) format capabilities, quoted commands, Open with, RegisteredApplications; UserChoice unchanged."
