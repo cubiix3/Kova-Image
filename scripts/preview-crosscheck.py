@@ -40,6 +40,18 @@ def to_srgb(image):
         return image
 
 
+def oriented(image):
+    """The picture turned by its EXIF orientation, as the viewer and the Shell show it."""
+    from PIL import ImageOps
+
+    result = ImageOps.exif_transpose(image)
+    if result is None:
+        return image
+    if "icc_profile" in image.info and "icc_profile" not in result.info:
+        result.info["icc_profile"] = image.info["icc_profile"]
+    return result
+
+
 def premultiplied_on_black(image):
     image = to_srgb(image).convert("RGBA")
     background = Image.new("RGBA", image.size, (0, 0, 0, 255))
@@ -69,6 +81,7 @@ for path in sorted(source.rglob("*")):
     try:
         reference = Image.open(path)
         reference.load()
+        reference = oriented(reference)
     except Exception:
         results["skipped"] += 1  # Pillow cannot read it either
         continue
