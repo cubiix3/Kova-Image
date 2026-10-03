@@ -9,7 +9,7 @@ and videos. These documents describe implemented behavior and its current limits
 | [Validation record](VALIDATION.md) | Completed checks and remaining coverage gaps |
 | [Windows builds and packaging](WINDOWS_RELEASE.md) | Portable builds, dependencies and installer strategy |
 | [File associations](FILE_ASSOCIATIONS.md) | Opt-in Open with registration and Windows defaults |
-| [Local video](VIDEO.md) | Playback architecture, codec requirements and safety limits |
+| [Local video and audio](VIDEO.md) | Playback architecture, codec requirements and safety limits |
 
 | Engineering | What it covers |
 | --- | --- |

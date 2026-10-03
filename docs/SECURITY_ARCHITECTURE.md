@@ -127,7 +127,19 @@ bounded timeouts and no automatic release publishing. Dependabot monitors Cargo
 and Actions. `cargo audit` runs separately and does not suppress advisories.
 Private reporting is documented in the root security policy.
 
-## Native video boundary
+## Native video and audio boundary
+
+Audio files (MP3, M4A/M4B, AAC, WAV, FLAC, Ogg, Opus, WMA) are admitted exactly like
+video: regular local files up to 32 GiB, a retained read-only handle, no reparse points
+other than cloud placeholders, content identification, and the box checks for M4A.
+Kova Image's own parsing of an audio file is limited to its tags (`src/audio.rs`):
+ID3v1/v2, MP4 `ilst` atoms and FLAC metadata blocks, read with positional reads, at
+most 16 MiB per tag or block and 32 MiB of `moov`, with bounded loops, in safe Rust and
+under `catch_unwind`; the cover picture goes through the viewer's image decoders and
+their limits. A test flips bytes in fixtures of every format and requires an error or a
+plain file, never a panic. WMA (ASF) containers are not inspected by Kova Image; Windows'
+own ASF source reads them, and its handling of URLs inside such files is not verified.
+The audio player creates no Direct3D device.
 
 Videos are limited to 32 GiB local regular files, 16,777,216 native pixels,
 8,192 pixels per side and seven days of finite duration. Presentation buffers
