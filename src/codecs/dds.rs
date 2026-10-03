@@ -27,6 +27,8 @@ fn corrupted(message: &str) -> Error {
     Error::Corrupted(format!("DDS: {message}"))
 }
 
+/// The header's `DDSD_PITCH` flag: the pitch field holds the bytes per row.
+const DDSD_PITCH: u32 = 0x8;
 const DDPF_ALPHAPIXELS: u32 = 0x1;
 const DDPF_ALPHA: u32 = 0x2;
 const DDPF_FOURCC: u32 = 0x4;
@@ -161,6 +163,18 @@ struct Header {
     width: u32,
     height: u32,
     layout: Layout,
+    /// Bytes per row of an uncompressed texture, when the header states them.
+    pitch: Option<usize>,
+}
+
+impl Header {
+    /// Bytes after each row of `tight` bytes. Writers align rows to four bytes; a
+    /// pitch that differs from the tight one by more is not trusted.
+    fn padding(&self, tight: usize) -> usize {
+        self.pitch
+            .filter(|pitch| (tight..=tight + 3).contains(pitch))
+            .map_or(0, |pitch| pitch - tight)
+    }
 }
 
 fn le32(bytes: &[u8], at: usize) -> u32 {
@@ -268,10 +282,12 @@ fn parse_header(head: &[u8]) -> Result<Header, Error> {
     } else {
         return Err(Error::Unsupported);
     };
+    let pitch = (le32(head, 8) & DDSD_PITCH != 0).then(|| le32(head, 20) as usize);
     Ok(Header {
         width,
         height,
         layout,
+        pitch,
     })
 }
 
@@ -766,11 +782,15 @@ pub(super) fn decode(mut reader: Reader, ticket: &Ticket) -> Result<Pending, Err
         }
         Layout::Packed(packed) => {
             let mut row = vec![0u8; width * packed.bytes];
+            let mut padding = vec![0u8; header.padding(row.len())];
             for (y, out) in rgba.chunks_exact_mut(width * 4).enumerate() {
                 if y % 16 == 0 {
                     ticket.check()?;
                 }
                 fill(&mut reader, &mut row, ticket)?;
+                if y + 1 < height {
+                    fill(&mut reader, &mut padding, ticket)?;
+                }
                 for (pixel, bytes) in out.chunks_exact_mut(4).zip(row.chunks_exact(packed.bytes)) {
                     let mut value = [0u8; 4];
                     value[..packed.bytes].copy_from_slice(bytes);
@@ -786,12 +806,16 @@ pub(super) fn decode(mut reader: Reader, ticket: &Ticket) -> Result<Pending, Err
             fill(&mut reader, &mut table, ticket)?;
             let unused = table.chunks_exact(4).all(|entry| entry[3] == 0);
             let mut row = vec![0u8; width];
+            let mut padding = vec![0u8; header.padding(width)];
             let mut translucent = false;
             for (y, out) in rgba.chunks_exact_mut(width * 4).enumerate() {
                 if y % 16 == 0 {
                     ticket.check()?;
                 }
                 fill(&mut reader, &mut row, ticket)?;
+                if y + 1 < height {
+                    fill(&mut reader, &mut padding, ticket)?;
+                }
                 for (pixel, &index) in out.chunks_exact_mut(4).zip(&row) {
                     let entry = &table[usize::from(index) * 4..][..4];
                     let alpha = if unused { 255 } else { entry[3] };

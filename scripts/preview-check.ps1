@@ -106,7 +106,9 @@ function Resolve-Who($ext) {
             $value = $key.GetValue('')
             if ($value -ieq $ours) { return 'Kova' }
             if ($value) {
-                $name = (Get-Item -LiteralPath "Registry::HKEY_CLASSES_ROOT\CLSID\$value" -ErrorAction SilentlyContinue).GetValue('')
+                # A packaged (store app) provider has no CLSID key; show its id then.
+                $class = Get-Item -LiteralPath "Registry::HKEY_CLASSES_ROOT\CLSID\$value" -ErrorAction SilentlyContinue
+                $name = if ($class -and $class.GetValue('')) { $class.GetValue('') } else { $value }
                 return "other: $name"
             }
         }
