@@ -22,7 +22,7 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
-windows-core = "0.62"
+windows-core = "0.100"
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
