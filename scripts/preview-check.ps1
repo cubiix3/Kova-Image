@@ -3,8 +3,9 @@
 Asks the Windows Shell for a thumbnail of every file in a folder, the way Explorer does.
 
 .DESCRIPTION
-The thumbnail cache is bypassed (WTS_FORCEEXTRACTION | WTS_EXTRACTDONOTCACHE), so the
-registered handler is really asked, and nothing is written to the cache or the registry.
+The thumbnail cache is bypassed (WTS_FORCEEXTRACTION), so the registered handler is really
+asked. The result replaces the cached thumbnail of that file, which is what Explorer would do
+too; nothing is written to the registry.
 For each file the script reports who handles the extension (Kova Image, Windows or another
 program), the size of the thumbnail or the error, and how long it took. A thumbnail of one
 colour is marked FLAT: right for a plain texture, suspicious for anything else.
@@ -71,8 +72,8 @@ public static class ThumbCheck {
         IShellItemStub item;
         SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out item);
         ISharedBitmap shared; uint outFlags; WtsId id;
-        // 0x4 force extraction, 0x20 do not cache the result.
-        int hr = cache.GetThumbnail(item, size, 0x24, out shared, out outFlags, out id);
+        // 0x4 is WTS_FORCEEXTRACTION: extract again and ignore any cached version.
+        int hr = cache.GetThumbnail(item, size, 0x4, out shared, out outFlags, out id);
         if (hr != 0) return "FAIL 0x" + hr.ToString("X8");
         IntPtr hbitmap;
         hr = shared.GetSharedBitmap(out hbitmap);
