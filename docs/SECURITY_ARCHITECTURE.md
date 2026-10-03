@@ -68,6 +68,12 @@ except that an SVG with text makes it load the installed system fonts. It
 writes no cache of its own. For PNG, JPEG, GIF, BMP, TIFF and ICO files whose content matches their
 extension it loads Windows' own photo thumbnail provider in the same host and
 passes the stream on; the decoding of such a file is then Windows' and not Kova's.
+This is a deliberate exception to "everything is decoded inside Kova Image", made
+for the previews Windows already produces (and which would otherwise change for
+every photo in Explorer); it is limited to the thumbnail DLL, to files whose
+content matches the extension, and the viewer never does it. Those files were
+decoded by the same Windows code before Kova's provider was registered, so the
+exposure is not new.
 It adds a second, separate attack surface compared with
 the viewer: untrusted files are decoded by every program that shows previews
 after registration, without the user opening them. `--unregister-thumbnails`
