@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Kova Image 0.2.0 is **Early Development**. Security fixes target the current
+Kova Image 0.2.1 is **Early Development**. Security fixes target the current
 `main` branch. No stable release or long-term support commitment exists yet.
 Use the newest reviewed source; do not assume older preview builds are supported.
 
