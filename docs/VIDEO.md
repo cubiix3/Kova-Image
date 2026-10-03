@@ -86,8 +86,10 @@ and nothing is drawn per frame. The state is checked ten times a second.
   the window and is not enlarged. WAV, Ogg, Opus and WMA show no tags.
 - A song with a cover shows it like a picture; one without shows a panel with the
   title (or the file name), artist and album. The file information lists the tags.
-- Navigation, autoplay, looping, volume, mute, minimizing, the slideshow and
-  Ctrl+Left/Right seeking work as for video. Image transforms do not apply.
+- Navigation, autoplay, looping, volume, mute, minimizing and Ctrl+Left/Right seeking
+  work as for video. The slideshow (F5) waits for a song to end and then moves on to the
+  next file, so a folder of songs plays one after another (`ui-smoke.py --state=audio`
+  checks it). Image transforms do not apply.
 
 ## Reproducible checks
 

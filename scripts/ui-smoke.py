@@ -279,7 +279,16 @@ try:
             key(0x25)
         values = snapshot("audio-flac")
         assert values["filename"] == "song.flac" and values["cover"] == "true"
-        print("PASS: audio cover, tags, pause, info, no-cover panel, error state, return to images")
+        # The slideshow waits for a song to end and then plays the next file: F5 is a playlist.
+        key(0x74)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            values = snapshot("audio-slideshow", refresh=False)
+            if values["filename"] == "song.mp3":
+                break
+            time.sleep(0.5)
+        assert values["filename"] == "song.mp3" and values["audio"] == "true", values
+        print("PASS: audio cover, tags, pause, info, no-cover panel, error state, slideshow to the next song, return to images")
     elif scenario == "pinned":
         wait_for(state_file.exists)
         click(540, 370)
