@@ -15,7 +15,7 @@ Keep the viewer-only scope. The nested `Kova-Screen/` checkout is an independent
 
 ## Architecture and invariants
 
-- Decoders do not import Slint; the UI does not parse image files. Every image format is decoded inside Kova Image, not through a Windows codec.
+- Decoders do not import Slint; the UI does not parse image files. Every image format is decoded inside Kova Image, not through a Windows codec. The one exception is the optional Explorer thumbnail DLL: for a PNG, JPEG, GIF, BMP, TIFF or ICO whose content matches its extension it passes the stream to Windows' own photo thumbnail provider, so that previews Windows already makes stay unchanged; anything else, and any failure, is decoded by Kova. The viewer never does this.
 - A new format needs content identification in `src/format.rs`, fixtures, a memory bound and the dependency review in `docs/DEPENDENCIES.md`.
 - Retain one decode worker, a latest-request slot, bounded results and a weighted cache.
 - Only the current generation updates the view. Cancellation is cooperative; never kill a codec thread.
