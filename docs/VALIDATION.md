@@ -166,9 +166,8 @@ external references, compressed/reference movie rejection, box lengths and depth
 See [VIDEO.md](VIDEO.md) for repeatable commands and native limitations.
 
 Per-user registration was run from a permanent local Programs folder and read
-back with `scripts/associations-smoke.ps1` (at that time 16 capabilities; the
-script now lists every advertised extension and has not been run since): quoted ProgID
-commands, OpenWith entries and RegisteredApplications were present. Existing
+back with `scripts/associations-smoke.ps1` (at that time 16 capabilities):
+quoted ProgID commands, OpenWith entries and RegisteredApplications were present. Existing
 UserChoice ProgID/hash values stayed unchanged. This verifies registration on
 the development machine, not every Explorer/default-picker behavior on clean
 Windows installations. The user still chooses defaults in Windows Settings.
@@ -348,3 +347,22 @@ checked with a generated GIF: window captures show changing animation pixels,
 identical pixels while paused, and frame changes after resuming. This verifies
 the installed application, beyond the debug tests and release build. GitHub CI
 is tracked separately from these local checks.
+
+## Default Apps registration refresh, 2026-10-07
+
+The development machine still had the earlier 16-extension registration despite
+having the newer executable installed. Running `scripts/associations-smoke.ps1`
+against that permanent installation refreshed and verified all 67 currently
+advertised extensions: 52 image, 5 video and 10 audio extensions. The script now
+reads the extension lists from the Rust sources and checks Capabilities,
+SupportedTypes, the quoted application and ProgID commands, OpenWithProgids and
+RegisteredApplications. Every existing UserChoice ProgID/hash stayed unchanged.
+
+The viewer now refreshes registration before opening its Default Apps Settings
+page, so the list includes formats added since an earlier registration.
+Local locked build/check, formatting, strict all-target Clippy, workspace tests
+(145 passed, 3 ignored) and the optimized release build passed. The installed
+executable was updated to that build and the registration check passed again.
+This is a developer-machine registration check, not clean-machine acceptance or
+proof that every video/audio codec is
+available. The native player still depends on installed Windows codecs.
