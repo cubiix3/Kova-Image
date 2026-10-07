@@ -34,7 +34,9 @@ Only formats Kova Image can decode are advertised.
 No extension default value, protected `UserChoice`, hash or another program's
 registration is overwritten. Registration adds a choice; it does not make Kova
 the default. The Settings button opens the official
-`ms-settings:defaultapps?registeredAppUser=Kova%20Image` URI. Windows controls
+`ms-settings:defaultapps?registeredAppUser=Kova%20Image` URI after refreshing
+registration for every currently supported extension. This also updates entries
+left by an older version. Windows controls
 which formats the user selects; older Windows versions may show the general
 Default Apps page.
 
