@@ -242,6 +242,9 @@ pub fn register_executable(exe: &Path) -> Result<(), Error> {
     Ok(())
 }
 pub fn default_apps(owner: isize) -> Result<(), Error> {
+    // Refresh the opt-in registration before Settings reads it, including formats
+    // added since an earlier installation and the current executable location.
+    register_associations()?;
     // SAFETY: fixed Windows Settings URI, no media path or user-controlled command.
     let result = unsafe {
         ShellExecuteW(
