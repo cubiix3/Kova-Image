@@ -44,7 +44,7 @@ if "--software" in sys.argv:
 if scenario == "video":
     (ROOT / "artifacts/video-fixtures/clip0.png").write_bytes((fixture.parent / "image2.png").read_bytes())
     arguments.append(str(ROOT / "artifacts/video-fixtures/clip1.mp4"))
-elif scenario == "file":
+elif scenario in ("file", "codec", "animation"):
     # Any file, for looking at: --state=file --path=C:\Music\song.mp3
     arguments.append(next(arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--path=")))
 elif scenario == "audio":
@@ -187,6 +187,8 @@ try:
         # the actual seek until release, without passing the drag to the canvas.
         user.PostMessageW(hwnd, 0x200, 0, 600 | (698 << 16))
         user.PostMessageW(hwnd, 0x201, 1, 600 | (698 << 16))
+        # Let the viewer process the press before posting movement outside the track.
+        assert abs(float(snapshot("video-seek-pressed")["video_position"]) - position) < 0.15
         user.PostMessageW(hwnd, 0x200, 1, 600 | (370 << 16))
         time.sleep(2.5)
         values = snapshot("video-seek-held")
@@ -236,6 +238,54 @@ try:
         time.sleep(0.5)
         assert snapshot("video-stale-protection")["filename"]=="clip4.mkv"
         print("PASS: native video frame, pause, stable clock, timeline seek, mute, info, compact layout, fullscreen auto-hide")
+    elif scenario == "codec":
+        wait_for(state_file.exists, seconds=25)
+        values = snapshot("codec-playing")
+        assert values["video"] == "true" and values["audio"] == "false" and values["error"] == "", values
+        assert float(values["video_duration"]) > 5 and float(values["display_width"]) > 100
+        from PIL import Image
+        colors = Image.open(OUT / "codec-playing.png").convert("RGB").crop((400, 220, 680, 420)).getextrema()
+        assert all(high - low > 100 for low, high in colors), "No decoded test pattern in the viewport"
+        key(0x20)
+        values = snapshot("codec-paused")
+        assert values["paused"] == "true"
+        position = float(values["video_position"])
+        time.sleep(0.4)
+        assert abs(float(snapshot("codec-paused-stable")["video_position"]) - position) < 0.15
+        click(600, 698)
+        values = snapshot("codec-seek")
+        assert values["error"] == "" and float(values["video_position"]) > 3, values
+        key(ord("M"))
+        assert snapshot("codec-unmuted")["muted"] == "false"
+        key(ord("M"))
+        assert snapshot("codec-muted")["muted"] == "true"
+        key(ord("I"))
+        assert snapshot("codec-info")["info"] == "true"
+        print("PASS: bundled codec rendered in the viewport, pause, stable clock, seek, mute and file information")
+    elif scenario == "animation":
+        wait_for(state_file.exists, seconds=30)
+        def moving():
+            values = snapshot("animation-playing")
+            assert values["error"] == "", values
+            return int(values["frame"]) > 0
+        wait_for(moving, seconds=120)
+        key(0x20)
+        paused = snapshot("animation-paused")
+        assert paused["paused"] == "true"
+        time.sleep(0.4)
+        assert snapshot("animation-paused-stable")["frame"] == paused["frame"]
+        key(0x20)
+        def resumed():
+            values = snapshot("animation-resumed")
+            assert values["paused"] == "false" and values["error"] == "", values
+            return values["frame"] != paused["frame"]
+        wait_for(resumed)
+        # Both the playback index and the rendered pixels must change.
+        from PIL import Image, ImageChops
+        before = Image.open(OUT / "animation-paused.png").convert("RGB").crop((0, 40, 1080, 640))
+        after = Image.open(OUT / "animation-resumed.png").convert("RGB").crop((0, 40, 1080, 640))
+        assert ImageChops.difference(before, after).getbbox() is not None
+        print("PASS: animation renders changing frames, pauses without advancing, and resumes")
     elif scenario == "file":
         wait_for(state_file.exists, seconds=25)
         values = snapshot("file-open")

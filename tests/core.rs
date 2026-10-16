@@ -477,6 +477,125 @@ fn animation_frame_limit_and_truncated_frame() {
     let path = temp.write("truncated.gif", &bytes[..bytes.len() / 2]);
     assert!(decoder::load(&path, &Generation::default().next()).is_err());
 }
+
+fn fitted_animation_uses_stored_frame_budget(format: Format) {
+    const W: u32 = 1024;
+    const H: u32 = 512;
+    const COUNT: usize = 72;
+    let temp = Temp::new();
+    let colors = [[255, 0, 0, 255], [0, 0, 255, 255]];
+    let pixels = colors.map(|color| color.repeat((W * H) as usize));
+    let mut bytes = Vec::new();
+    let extension = match format {
+        Format::Gif => {
+            let mut encoder =
+                gif::Encoder::new(&mut bytes, W as u16, H as u16, &[255, 0, 0, 0, 0, 255]).unwrap();
+            encoder.set_repeat(gif::Repeat::Infinite).unwrap();
+            let mut indices = vec![0; (W * H) as usize];
+            for index in 0..COUNT {
+                indices.fill((index % 2) as u8);
+                encoder
+                    .write_frame(&gif::Frame {
+                        width: W as u16,
+                        height: H as u16,
+                        delay: 6,
+                        buffer: std::borrow::Cow::Borrowed(&indices),
+                        ..gif::Frame::default()
+                    })
+                    .unwrap();
+            }
+            "gif"
+        }
+        Format::Png => {
+            let mut encoder = png::Encoder::new(&mut bytes, W, H);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_compression(png::Compression::Fast);
+            encoder.set_animated(COUNT as u32, 0).unwrap();
+            encoder.set_frame_delay(6, 100).unwrap();
+            let mut writer = encoder.write_header().unwrap();
+            for index in 0..COUNT {
+                writer.write_image_data(&pixels[index % 2]).unwrap();
+            }
+            "apng"
+        }
+        Format::WebP => {
+            let encoded: Vec<_> = pixels
+                .iter()
+                .map(|rgba| {
+                    let mut encoded = Cursor::new(Vec::new());
+                    DynamicImage::ImageRgba8(RgbaImage::from_raw(W, H, rgba.clone()).unwrap())
+                        .write_to(&mut encoded, ImageFormat::WebP)
+                        .unwrap();
+                    encoded.into_inner()
+                })
+                .collect();
+            let mut riff = Vec::from(*b"WEBP");
+            riff.extend(chunk(b"VP8X", &[2, 0, 0, 0, 255, 3, 0, 255, 1, 0]));
+            riff.extend(chunk(b"ANIM", &[0; 6]));
+            for index in 0..COUNT {
+                let mut frame = vec![0, 0, 0, 0, 0, 0, 255, 3, 0, 255, 1, 0, 60, 0, 0, 2];
+                frame.extend_from_slice(&encoded[index % 2][12..]);
+                riff.extend(chunk(b"ANMF", &frame));
+            }
+            bytes.extend_from_slice(b"RIFF");
+            bytes.extend_from_slice(&(riff.len() as u32).to_le_bytes());
+            bytes.extend(riff);
+            "webp"
+        }
+        _ => unreachable!(),
+    };
+    let path = temp.write(&format!("large.{extension}"), &bytes);
+    let mut previews = 0;
+    let fitted = decoder::load_target(
+        &path,
+        &Generation::default().next(),
+        decoder::Target {
+            max_width: 128,
+            max_height: 64,
+        },
+        &mut |image| {
+            previews += 1;
+            assert_eq!(
+                (image.width, image.height, image.frames.len()),
+                (128, 64, 1)
+            );
+        },
+    )
+    .unwrap();
+    assert_eq!(previews, 1);
+    assert_eq!((fitted.source_width, fitted.source_height), (W, H));
+    assert_eq!((fitted.width, fitted.height), (128, 64));
+    assert_eq!(fitted.frames.len(), COUNT);
+    assert_eq!(fitted.weight(), COUNT * 128 * 64 * 4);
+    assert!(fitted.weight() < security::FRAME_BUDGET);
+    for (index, frame) in fitted.frames.iter().enumerate() {
+        assert_eq!(frame.delay.as_millis(), 60);
+        assert!(
+            frame
+                .rgba
+                .chunks_exact(4)
+                .all(|pixel| pixel == colors[index % 2])
+        );
+    }
+    assert!(matches!(
+        decoder::load(&path, &Generation::default().next()),
+        Err(Error::MemoryBudget)
+    ));
+}
+
+#[test]
+fn fitted_gif_uses_stored_frame_budget() {
+    fitted_animation_uses_stored_frame_budget(Format::Gif);
+}
+#[test]
+fn fitted_apng_uses_stored_frame_budget() {
+    fitted_animation_uses_stored_frame_budget(Format::Png);
+}
+#[test]
+fn fitted_webp_uses_stored_frame_budget() {
+    fitted_animation_uses_stored_frame_budget(Format::WebP);
+}
+
 #[test]
 fn single_frame_gif_is_fitted_once() {
     let temp = Temp::new();

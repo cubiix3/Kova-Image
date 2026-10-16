@@ -25,6 +25,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Format
         run: cargo fmt --all -- --check
+      - name: Bundled video decoders
+        run: .\scripts\build-ffmpeg.ps1 -MsysRoot C:\msys64
       - name: Check
         run: cargo check --locked --workspace --all-targets
       - name: Clippy

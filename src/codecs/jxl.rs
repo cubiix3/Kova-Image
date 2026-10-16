@@ -4,7 +4,7 @@
 use super::Reader;
 use crate::{
     animation::Loops,
-    decoder::{Frame, Pending, Target, fit_frame, photo_from_exif},
+    decoder::{Frame, Pending, Target, fit_frame, fitted_size, photo_from_exif},
     error::Error,
     format::Format,
     security::{self, Ticket},
@@ -73,7 +73,8 @@ pub(super) fn decode(
     drop(chunk);
 
     let (width, height) = (image.width(), image.height());
-    let bytes = security::rgba_bytes(width, height)?;
+    let (stored_width, stored_height) = fitted_size(width, height, target);
+    let bytes = security::rgba_bytes(stored_width, stored_height)?;
     image.set_cms(Moxcms);
     // The viewer shows sRGB: let the decoder convert, so no profile is left over.
     let gray = image.pixel_format().is_grayscale();

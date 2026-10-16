@@ -54,7 +54,7 @@ and official Windows APIs**. It is a sibling of
 |  |  |
 | --- | --- |
 | ⚡ **Instant navigation** | The current image always wins. Once you pause on a picture, the next two files in your direction of travel are decoded in advance. |
-| 🎞️ **Animations and video** | GIF, APNG and animated WebP with correct timing and loops. Local MP4, MOV and MKV through Windows Media Foundation. |
+| 🎞️ **Animations and video** | GIF, APNG and animated WebP with correct timing and loops. Local MP4, MOV, WebM and MKV with bundled video and audio decoders. |
 | 🎵 **Audio** | MP3, M4A, AAC, WAV, FLAC and WMA play with the video controls, and the next song in the folder is one key away. Title, artist and cover are read from the file and shown. |
 | 🎨 **Real color** | Embedded ICC profiles are converted to sRGB. EXIF orientation is applied automatically. |
 | 📦 **Formats built in** | WebP, AVIF, HEIC, JPEG XL, SVG, camera RAW, DDS, TGA and more open without any Windows codec or extension, and Explorer can show their thumbnails. See [Supported formats](#supported-formats). |
@@ -97,8 +97,8 @@ kova-image.exe --register-file-associations       # per-user Open with registrat
 ```
 
 Registration never touches the protected `UserChoice` defaults; Windows keeps
-the final say. See [file associations](docs/FILE_ASSOCIATIONS.md). Video and audio
-need the Windows Media Foundation components, which Windows N editions may lack.
+the final say. See [file associations](docs/FILE_ASSOCIATIONS.md). Audio-only
+playback needs the Windows Media Foundation components, which Windows N editions may lack.
 
 </details>
 
@@ -133,8 +133,8 @@ need the Windows Media Foundation components, which Windows N editions may lack.
 | **Camera RAW** | The full-size JPEG preview that the camera stored in the file (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF and similar). The raw sensor data is not developed. |
 | **DDS** | The first (largest) picture of a texture: BC1 to BC5 and BC7 (DXT1 to DXT5, ATI1/ATI2, DX10 headers), uncompressed RGB, RGBA, luminance and alpha layouts, and 8 bit palettized textures. BC6H and floating point textures show a clear error. |
 | **TGA, PNM, QOI, HDR, EXR, farbfeld** | Still image. Float formats are tone-mapped to sRGB. |
-| **MP4 / M4V, MOV, MKV** | Through Windows codecs; H.264/AAC is tested |
-| **WebM** | Plays if a Windows codec is installed, otherwise shows a clear error |
+| **MP4 / M4V, MOV, MKV** | Bundled FFmpeg decoders, including H.264, HEVC/H.265, AV1 and VP9, with AAC, AC-3, E-AC-3, DTS, Opus and more |
+| **WebM** | Bundled VP8/VP9 and Vorbis/Opus decoders; no Windows codec extension needed |
 | **MP3, M4A, AAC, WAV, FLAC, WMA, Ogg, Opus** | Audio through Windows codecs, with title, artist, album and cover read from ID3 tags, MP4 atoms and FLAC blocks. A FLAC shorter than one second reports no duration in Windows and is refused. |
 
 Formats are detected from file content; the extension decides only for formats
@@ -214,7 +214,7 @@ Packaging and the installer are described in
   bitmap exceeds 32 megapixels, so 100% on a 50 MP photo shows a slightly
   reduced bitmap (the file information lists the decoded size).
 - Folder scans read names and types only: no thumbnails, no database.
-- Video runs on its own worker. Media Foundation keeps audio and video in sync,
+- Video runs on its own worker. Bundled decoders use WASAPI's clock for synchronization,
   only the latest frame is kept, and presentation is capped at 3840 × 2160.
   Minimizing pauses playback. Audio uses the same worker without a graphics
   device and checks its clock only ten times a second.

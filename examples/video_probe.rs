@@ -1,4 +1,4 @@
-//! Local, opt-in MF integration check with a generated test clip (audio muted).
+//! Local, opt-in playback check with a generated test clip (audio muted).
 use kova_image::{media, security::Generation, video::Player};
 use std::{
     path::PathBuf,
@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
     let mut frames = 0;
     let mut sought = false;
+    let mut seek_frame = false;
     loop {
         let update = rx.recv_timeout(Duration::from_secs(25))?;
         let state = update.state?;
@@ -37,15 +38,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .any(|p| p[0] > 10 || p[1] > 10 || p[2] > 10)
             );
             frames += 1;
+            seek_frame |= sought && state.paused && state.position >= state.duration * 0.5;
         }
         if frames > 3 && !sought {
             player.pause(true);
             player.seek(state.duration * 0.6);
             sought = true;
         }
-        if sought && state.paused && state.position >= state.duration * 0.5 {
+        if seek_frame && state.paused && state.position >= state.duration * 0.5 {
             println!(
-                "PASS: {}x{}, {:.2}s, {frames} frames, seek {:.2}s, D3D hardware device={}",
+                "PASS: {}x{}, {:.2}s, {frames} frames, seek {:.2}s, hardware decoding={}",
                 state.width, state.height, state.duration, state.position, state.hardware
             );
             break;
@@ -67,6 +69,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if Instant::now() > deadline {
             return Err("end-of-file timeout".into());
+        }
+    }
+    player.pause(true);
+    player.seek(duration);
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let update = rx.recv_timeout(Duration::from_secs(3))?;
+        let state = update.state?;
+        if state.paused && state.position >= duration - 0.01 && update.frame.is_some() {
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err("exact-end seek did not display a frame".into());
         }
     }
     player.looping(true);

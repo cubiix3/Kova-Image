@@ -11,6 +11,11 @@ Visual Studio or the standalone Visual Studio Build Tools.
 Run from a Developer PowerShell, or use `scripts/cargo-msvc.ps1` to discover
 the installed Visual Studio environment:
 
+First build the bundled video decoders with `scripts/build-ffmpeg.ps1` and a
+workspace-local MSYS2 installation (make, nasm and pkgconf). Python is required
+for the isolated Meson/Ninja build tools. See [VIDEO.md](docs/VIDEO.md). The
+source archives are pinned and checked by SHA-256; Cargo does not download codecs.
+
 ```powershell
 cargo build --locked
 cargo fmt --all -- --check
@@ -28,6 +33,10 @@ come from `scripts/image-fixtures.py` (Pillow and a developer-installed ffmpeg;
 the application and CI never need an encoder) and the HEVC reference corpus from
 `scripts/hevc-reference.py`. Never commit
 build outputs, real personal images, private paths, credentials or machine state.
+
+Large animation checks use `scripts/animation-fixtures.py` (Pillow). Regenerate
+the JPEG XL regression fixture with `--tests --ffmpeg <developer-ffmpeg>` using
+FFmpeg 8.1.3 with `libjxl_anim`; the encoder is not shipped in Kova Image.
 
 ## Pull requests
 

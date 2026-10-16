@@ -76,5 +76,6 @@ Media Foundation availability, any missing runtime DLLs and the results in
 
 Per-user registration and a Default Apps settings helper are implemented; see
 [FILE_ASSOCIATIONS.md](FILE_ASSOCIATIONS.md). Portable packaging itself does not
-register or change defaults. Videos require Windows Media Foundation and a
-compatible installed codec; no codec engine or pack is redistributed.
+register or change defaults. Keep the bundled FFmpeg and dav1d DLLs beside the
+executable. Packaging includes their matching source archives, build recipes
+and licenses under `decoder-sources`. Audio-only files require Media Foundation.

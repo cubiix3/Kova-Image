@@ -15,10 +15,12 @@ graph: native UI/font support has a substantial build footprint.
 | rav1d 1.1.0, vendored in `vendor/rav1d` | Rust port of dav1d; BSD-2-Clause | AV1 for AVIF. No assembly (it would need nasm in the locked MSVC build), so it is slower than dav1d: a 12 MP 4:2:0 picture decodes in about 320 ms on one thread. The vendored copy differs from the published crate only in declaring `extern "C"` as `extern "C-unwind"`, so a panic inside the decoder is caught instead of aborting the process (see `vendor/rav1d/KOVA.md` and `scripts/vendor-rav1d.py`). Decoding runs on its own thread with a frame size limit. |
 | moxcms 0.8 | BSD-3-Clause OR Apache-2.0; already used by image-rs | Direct use converts an embedded ICC profile to 8-bit sRGB. A missing or unreadable profile leaves the decoded pixels unchanged. No network and no monitor profile. |
 | kamadak-exif 0.6.1 | BSD-2-Clause | Reads the Exif block image-rs already returns. Used for the date, camera and exposure rows. No thumbnail extraction. |
-| windows / windows-core 0.62 | Microsoft bindings; MIT OR Apache-2.0 | Selected Win32/Shell/COM/clipboard/Registry/DWM and Media Foundation/D3D11 APIs, shared version with Slint. Native video initializes on demand; no bundled multimedia engine or IPC. |
+| windows / windows-core 0.62 | Microsoft bindings; MIT OR Apache-2.0 | Selected Win32/Shell/COM/clipboard/Registry/DWM, WASAPI and Media Foundation APIs, shared version with Slint. Playback initializes on demand; no IPC. |
 | raw-window-handle 0.6 | MIT OR Apache-2.0 | Already in the GUI graph; obtains an owner HWND for native dialogs/clipboard. |
 | slint-build | Same licensing family as Slint | Build-only UI compiler; its image features include encoders and formats not shipped as viewer decoders. |
 | winresource 0.1 | MIT | Build-only Windows resource compiler wrapper for icon, version and manifest. |
+| cc 1.2 | MIT OR Apache-2.0; already in the lockfile | Build-only compiler wrapper for the small FFmpeg C ABI boundary. |
+| FFmpeg 8.1.3 / dav1d 1.5.3 | Dynamic LGPL-2.1-or-later / BSD-2-Clause libraries | Playback-only software video decoding; approximately 11.2 MiB of DLLs plus complete corresponding source archives. No GPL/nonfree libraries, encoders, network protocols or external executable. Built from SHA-256-pinned sources; see the video decision below. |
 | png / gif (dev) | MIT OR Apache-2.0 / MIT | Generate small test animations; no new runtime format stack. |
 
 Slint's build-time image dependency enables AVIF **encoding**, EXR and other
@@ -57,7 +59,8 @@ remains an option if real photo folders show resampling as the bottleneck.
 ## Format decisions
 
 Every image format is decoded inside Kova Image. No Windows codec, extension or
-system library is required, and nothing is downloaded or built from the network.
+system library is required at runtime. Image decoders remain separate from the
+native video SDK.
 
 **AVIF** uses rav1d. image-rs `avif-native` resolves to dav1d-sys, which needs
 pkg-config and either a preinstalled dav1d or a Meson build that clones dav1d
@@ -85,9 +88,10 @@ intra pictures only), described in the next section.
 
 ## HEVC and patents
 
-No usable HEVC decoder exists under a licence that fits Kova Image: the `heic`
-crate is AGPL-3.0, libheif and libde265 are LGPL and would be C libraries in the
-build. HEIC stills, as phones and cameras write them, are HEVC *intra* pictures,
+The image-decoder decision predates the bundled video SDK: the `heic` crate is
+AGPL-3.0, while libheif and libde265 require native LGPL libraries. The existing
+HEIC decoder stays independent of the video engine. HEIC stills, as phones and
+cameras write them, are HEVC *intra* pictures,
 so a decoder for just that part is much smaller than a video decoder. It
 supports Main, Main 10, Main Still Picture and the range extension profiles for
 4:0:0, 4:2:2 and 4:4:4 up to 12 bit, with grids and auxiliary alpha pictures.
@@ -120,22 +124,30 @@ Primary references: [Slint license](https://github.com/slint-ui/slint/blob/cf62c
 ## Audio
 
 No Cargo package was added for audio. The player is the Media Foundation Media Engine
-used for video, in its audio-only mode, so Windows supplies the container parsers and the
+in its audio-only mode, so Windows supplies the container parsers and the
 decoders (MP3, AAC, WAV, FLAC and WMA are included; Ogg Vorbis and Opus need Microsoft's
 free "Web Media Extensions"). The tags and covers are read by about 500 lines of own code (and as many of tests)
 in `src/audio.rs` (ID3v1/v2, MP4 `ilst` atoms, FLAC blocks) with fixed limits; the cover is
 decoded by the viewer's own image decoders.
 
-## Local video addition
+## Bundled local video decoders — 2026-10-05
 
-No Cargo package was added. Selected features on the existing windows-rs binding
-expose Windows Media Foundation Media Engine and D3D11. The OS supplies container
-parsers, audio/video clocks and installed codecs; OS servicing supplies fixes.
-D3D hardware acceleration is requested, with WARP device fallback. The presence
-of a hardware device is not proof that each codec decoded in hardware.
+Windows Media Foundation previously failed on HEVC/AAC and H.264/AC-3 MKV and
+VP9/Opus WebM with `0xC00D5212`. Video now links a reduced, shared FFmpeg build
+with dav1d for AV1. The existing worker, retained admitted file handle and latest
+frame mailbox remain. WASAPI supplies stereo output and its playback clock;
+audio-only files retain Media Foundation. No external player process is launched.
 
-The executable does not link or launch FFmpeg, libVLC, mpv, a browser or a codec
-installer. FFmpeg may generate synthetic developer test clips; it is not an app
-or package dependency. This saves a bundled codec stack but makes format support
-dependent on the Windows installation. See [VIDEO.md](VIDEO.md) for references,
-real codec results, native allocation limits and the readback tradeoff.
+`scripts/build-ffmpeg.ps1` verifies the source archive hashes and builds with
+MSVC, Meson/Ninja and MSYS2 tools. Only selected demuxers, parsers and decoders
+are enabled. GPL, nonfree, encoding, device, filter and network features are
+excluded. The package ships the six DLLs, upstream license texts, complete
+matching source archives and build recipes in `decoder-sources`. The application
+does not download components. Native decoder updates require a new Kova package.
+
+Video decoding now uses the CPU. Pixel/sample limits apply to probe and playback
+contexts, a single allocation is capped at 64 MiB, and the PCM queue is bounded
+to two seconds; these limits do not cap all process memory. Native faults remain
+in process. See [VIDEO.md](VIDEO.md) and [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md)
+for the IO boundary, limits and failure behavior. This does not change the HEIC
+image decoder or its patent considerations above.

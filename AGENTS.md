@@ -22,7 +22,7 @@ Keep the viewer-only scope. The nested `Kova-Screen/` checkout is an independent
 - Keep the previous image visible while loading; destructive/copy actions require displayed and requested paths to match.
 - Folder scans read names/types, not full image content or speculative thumbnails.
 - Animation uses a single-shot frame timer; no idle/paused polling.
-- Video uses the existing Media Foundation/D3D11 worker and latest-frame slot. Audio files use the same worker in Media Engine's audio-only mode, without a D3D device; they are admitted like video, and their tags are read with fixed limits.
+- Video uses bundled FFmpeg decoders and WASAPI on the existing playback worker and latest-frame slot. Audio files use the same worker in Media Engine's audio-only mode; they are admitted like video, and their tags are read with fixed limits. Video reads only the admitted handle, with protocols and secondary file opens disabled.
 - Never preload videos or audio, or cache entire video frame sequences. Stop/release video resources before recycling.
 - Shell objects stay on their STA worker; shutdown must not block the UI on a non-cooperative decoder.
 - No daemon, networking or single-instance protocol. File associations respect Windows-owned default selection.

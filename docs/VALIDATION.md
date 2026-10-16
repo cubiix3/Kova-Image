@@ -148,7 +148,7 @@ and the extracted executable opened a generated JPEG through the software path.
 This is still a developer-machine check, not clean-VM acceptance. The new CI
 packaging step has not yet been observed on GitHub.
 
-## Compact UI and local video
+## Compact UI and local video ? historical Media Foundation checks
 
 The earlier compact layout used a 50 px header and a 60 px bottom bar, with
 32 px controls and rounded groups. Real renderer captures cover the empty state,
@@ -240,3 +240,111 @@ Not verified: cloud placeholders (no sync provider was available; only the tag
 classification and symlink refusal are tested), Narrator, physical high-contrast
 and multi-monitor DPI, clean-machine installation, and code signing. Photos were
 synthetic JPEGs; real 50 MP photo folders are still unmeasured.
+
+
+## Bundled MKV/video decoders ? 2026-10-05
+
+The previous Media Foundation probe played H.264/AAC MKV but rejected HEVC/AAC
+MKV, H.264/AC-3 MKV and VP9/Opus WebM with missing-codec error `0xC00D5212`.
+A reduced shared FFmpeg 8.1.3 build with dav1d 1.5.3 now decodes video from the
+retained admitted handle; WASAPI outputs timestamped stereo PCM. Audio-only
+files retain Media Foundation. Video decoding is software based.
+
+Local Rust 1.95.0/MSVC checks pass: formatting, locked all-target workspace
+check, all-target Clippy with warnings denied, 150 tests, and optimized viewer
+and Explorer preview provider builds. Three opt-in tests remain ignored (HEVC
+reference/damage corpus and registry-changing Explorer acceptance).
+
+Muted player probes pass for H.264/AAC MP4, MOV and MKV; VP9/Opus and VP8/Vorbis
+WebM; HEVC/AAC, HEVC/E-AC-3, H.264/AC-3, H.264/DTS, VP9/Opus and AV1/Opus MKV;
+and 44.1 kHz AAC MP4. Each checks non-empty frames, pause/seek, an actual frame
+after seeking to exact duration, end-of-file, looping and file-handle release
+after acknowledged Stop. The MP3 audio-only probe passes the same clock/resource
+checks. Probe files are separate copies, so a GUI holding another clip cannot
+invalidate the writable-handle assertion.
+
+Cargo fixtures decode HEVC/AC-3, AV1/Opus and VP9/Vorbis to non-empty RGBA and
+non-silent finite PCM without a sound device. Rotation, pixel aspect ratio,
+BT.709 and full-range conversion match generated reference PNGs. A 44.1 kHz AAC
+fixture verifies continuous PCM timestamps and all 57,958 reference output
+frames through resampler EOF. Timestamped audio queue tests cover gaps, late
+samples and the two-second bound. Independent playback review found and verified
+fixes for resampling delay/tail and out-of-range native seek timestamps.
+
+The actual-window codec scenario passes for HEVC/AAC MKV with the software
+renderer and AV1/Opus MKV with the default GPU renderer. It checks the generated
+color pattern in the viewport, pause/clock stability, seek, mute and file info.
+The full GPU video scenario also passes with saved autoplay=false, held seeking,
+compact layout, fullscreen auto-hide and mixed/stale navigation. A renderer
+capture after the synthetic mouse press lets the viewer process that event
+before the outside-track move; no assertions were removed or relaxed.
+
+The full software video scenario still fails an auto-hide/hover assertion around
+a held synthetic drag. A diagnostic run verified held seeking but later failed
+a fullscreen auto-hide assertion. This surface is not claimed passing; earlier
+software smoke timing limitations are documented above. Targeted software MKV
+playback and all native player probes pass.
+
+The software image scenario passes navigation, transforms, animation controls,
+fullscreen and compact layout. The audio GUI scenario passes covers/tags,
+pause, unsupported-codec error handling, slideshow and return to image files.
+
+DLL import checks find only the six shipped decoder DLLs and Windows/C runtime
+libraries. The native configuration disables GPL, nonfree, encoders and network
+features. Source archive hashes match the pinned recipes; packages include the
+complete corresponding archives and license texts. The portable package passes
+the dependency license check. ZIP extraction preserves the executable, preview
+DLL, all six decoder DLLs and source archives byte for byte. HEVC and AV1 player
+probes run successfully against those extracted DLLs. The extracted optimized
+viewer opens HEVC MKV with the software renderer; its accessibility tree reports
+640 x 360, six seconds and a paused 0:00 / 0:06 timeline with saved autoplay=false.
+The Explorer preview DLL has no FFmpeg imports.
+
+No user-provided failing video was available. Clean-VM playback/installation,
+physical audio synchronization, HDR tone mapping, device-loss handling and every
+codec/profile combination remain unverified. GitHub CI has the native build step
+but has not run for this unpushed change. The existing installed viewer was not
+replaced.
+
+
+## Fitted animation memory accounting, 2026-10-16
+
+Generated 1600 x 900, 48-frame GIF, APNG and WebP files were rejected with
+`MemoryBudget` at a 640 x 360 display target. Admission charged every frame at
+source resolution even though frames were already fitted before retention.
+The sequence needs 44,236,800 stored RGBA bytes at that target, below 128 MiB.
+GIF/APNG/WebP collection and JPEG XL now charge the fitted frame size. Source
+pixel/dimension limits, codec allocation limits, frame count and the 128 MiB
+retained-frame budget are unchanged.
+
+Regression tests generate 72-frame GIF/APNG/WebP files and check all fitted
+pixels, frame delays, original dimensions and the first-frame preview. Full-size
+requests that exceed the budget still return `MemoryBudget`. A generated
+25-frame RGB JPEG XL fixture checks the same storage behavior and full-size
+refusal. The larger 48-frame JPEG XL variant still reaches its separate 512 MiB
+codec allocation limit, which remains enforced.
+
+Formatting, locked all-target workspace check, strict all-target Clippy and all
+154 workspace tests pass (three existing opt-in tests remain ignored). These
+include still-image formats, image damage/cancellation, animation disposal and
+looping, audio and bundled video regressions. New animation GUI checks verify
+changing rendered pixels and frame indices, pause stability and resume for GIF,
+APNG, WebP and JPEG XL. Default image/navigation GUI and HEVC MKV GUI checks also
+pass. No performance improvement is claimed.
+
+Fixtures come from `scripts/animation-fixtures.py`; JPEG XL was encoded with a
+developer FFmpeg 8.1.3 `libjxl_anim` encoder, not the bundled playback-only SDK.
+The application launches no encoder. No failing personal GIF was provided, so
+verification uses the generated files. Clean-machine acceptance and every file
+variant remain outside these checks.
+
+
+The optimized viewer and Explorer preview provider build successfully. The
+portable package passes its license check. The per-user installation was backed
+up and updated from that package; the installed viewer, preview DLL and six
+video DLL hashes match the staged release. Settings and the existing GIF
+UserChoice ProgId/hash remain unchanged. The installed release viewer was
+checked with a generated GIF: window captures show changing animation pixels,
+identical pixels while paused, and frame changes after resuming. This verifies
+the installed application, beyond the debug tests and release build. GitHub CI
+is tracked separately from these local checks.
