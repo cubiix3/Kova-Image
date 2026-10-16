@@ -1,5 +1,8 @@
 # Compact UI and native video measurements
 
+Historical Media Foundation/D3D11 measurements. Video moved to bundled software
+decoders on 2026-10-05; these figures do not measure the new playback backend.
+
 Recorded 2026-09-06, Windows 11 Pro build 26200, Intel i7-13700K,
 RTX 4080 SUPER, driver 32.0.16.1656, 100% DPI, 1080 x 740 window.
 Rust 1.95.0 release build, FemtoVG. Synthetic local files, no cleared OS caches.

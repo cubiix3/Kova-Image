@@ -19,7 +19,7 @@ flowchart LR
     Guard --> App
     Worker --> Admission[Local video admission]
     Admission --> Results
-    App --> Video[Lazy MF / D3D11 worker]
+    App --> Video[Lazy FFmpeg / WASAPI worker; MF for audio files]
     Video --> Frame[One latest-frame slot]
     Frame --> Guard
     App --> Shell[One Windows STA worker]
@@ -61,9 +61,10 @@ Frames are decoded/composited by image-rs, not the UI. GIF loop extensions are
 parsed structurally to distinguish no extension, infinite repetition and finite
 additional repetitions. APNG/WebP supply total loop counts. The UI uses a
 single-shot timer per frame; no animation polling runs while idle or paused.
-Animation storage is bounded. The first composited frame is delivered as soon
-as it is fitted, and later frames append while that generation is still current.
-A one-frame file is not announced twice.
+Animation storage is bounded to 128 MiB of fitted frames; source dimensions and
+decoder scratch allocations retain their separate limits. GIF/APNG/WebP show
+the first fitted frame while the rest decodes, then receive the complete
+animation for the current generation. A one-frame file is not announced twice.
 
 Shrinking is done by `resample`: whole-number block averaging first, then a
 two-tap bilinear pass, so a large reduction stays cheap and no full-size
@@ -103,15 +104,20 @@ and [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md#explorer-thumbnail-provi
 
 `media` owns mixed-format classification and bounded local container admission.
 `video` owns a coalesced desired-state mailbox and a dedicated MTA worker.
-`video/native` isolates Media Foundation/D3D resources and `video/stream` supplies
-a seekable read-only COM stream over the admitted handle. `app/video` prepares the Slint shared pixel buffer on the worker, applies a
+`video/native` selects bundled FFmpeg for video and Media Foundation for audio.
+`video/ffmpeg.c` keeps FFmpeg's structures behind an opaque handle;
+`video/ffmpeg` supplies seek/read/interrupt callbacks over the admitted handle.
+`video/output` submits timestamped stereo PCM to WASAPI, whose clock drives
+video presentation. Audio-only files use the IStream in `video/stream`.
+`app/video` prepares the Slint shared pixel buffer on the worker, applies a
 generation guard on the UI and presents frames without a UI-thread pixel copy. None of these decoder modules imports UI.
 
 Switching files stops old playback. Videos are never preloaded, cached as whole
 frame sequences or started by folder enumeration. Video metadata and frames
 cross one latest-update slot; state-only updates retain the pending frame.
 Image handling keeps the existing decode worker/cache. Native calls are not
-forcibly interrupted; the UI ignores old generations while the worker releases
+forcibly interrupted; FFmpeg's IO and demux interrupt callbacks check revision
+and shutdown. The UI ignores old generations while the worker releases
 old engine resources. A slow native operation can delay the next video request.
 
 Recycling a video sends Stop and waits for its resource-release acknowledgement

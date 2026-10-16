@@ -697,9 +697,8 @@ fn collect(
     srgb: &Srgb,
 ) -> Result<(Vec<Frame>, bool), Error> {
     let (stored_w, stored_h) = fitted_size(width, height, target);
-    // Count the source canvas, matching the stored-budget admission used before
-    // display scaling. Downscaling only reduces what is retained afterwards.
-    let weight = security::rgba_bytes(width, height)?;
+    // Source canvases are bounded by the decoder limits; only fitted frames accumulate.
+    let weight = security::rgba_bytes(stored_w, stored_h)?;
     let fit = |rgba: Vec<u8>| fit_frame(rgba, (width, height), target, srgb);
     let mut result: Vec<Frame> = Vec::new();
     let mut announced = false;

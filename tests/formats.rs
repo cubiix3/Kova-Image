@@ -116,6 +116,18 @@ fn jpeg_xl_is_fitted_to_the_view() {
     assert_eq!((image.width, image.height), (16, 12));
     assert_eq!((image.source_width, image.source_height), (W, H));
 }
+
+#[test]
+fn animated_jpeg_xl_uses_stored_frame_budget() {
+    let path = fixture("animated-budget.jxl");
+    let image = load_fit(&path, 128).unwrap();
+    assert_eq!((image.source_width, image.source_height), (1600, 900));
+    assert_eq!((image.width, image.height), (128, 72));
+    assert_eq!(image.frames.len(), 25);
+    assert_eq!(image.weight(), 25 * 128 * 72 * 4);
+    assert_ne!(image.frames[0].rgba, image.frames[24].rgba);
+    assert!(matches!(load(&path), Err(Error::MemoryBudget)));
+}
 #[test]
 fn jpeg_xl_damage_is_an_error_not_a_panic() {
     let temp = Temp::new();

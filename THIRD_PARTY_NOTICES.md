@@ -1,6 +1,13 @@
 # Third-party notices
 
 Kova Image's original code is MIT OR Apache-2.0.
+
+Video decoding dynamically links FFmpeg 8.1.3 under LGPL-2.1-or-later and dav1d
+1.5.3 under BSD-2-Clause. The playback-only build excludes GPL/nonfree components,
+encoders, network protocols and external plugins. Binary packages include the
+matching complete source archives, license texts and build recipes under
+`decoder-sources`. Keep those files and the decoder DLLs when redistributing.
+See [FFmpeg's licensing guidance](https://ffmpeg.org/legal.html).
 The Kova logo and application icon are part of this project, copyright 2026 Kova
 Contributors, under the same dual license. No ImageGlass assets are used.
 

@@ -1,33 +1,24 @@
-//! Media Foundation and D3D calls are confined to the playback worker. Audio
-//! files use the same engine in its audio-only mode, without a graphics device.
-use super::{Frame, VideoState};
+//! All native media resources stay on the playback worker.
+use super::{Desired, Frame, VideoState, ffmpeg};
 use crate::{
     error::Error,
     media::{VideoKind, VideoSource},
 };
 use std::sync::{
-    Arc,
+    Arc, Condvar, Mutex,
     atomic::{AtomicU32, Ordering},
 };
 use windows::{
-    Win32::{
-        Foundation::*,
-        Graphics::{
-            Direct3D::*,
-            Direct3D11::*,
-            Dxgi::{Common::*, IDXGISurface},
-        },
-        Media::MediaFoundation::*,
-        System::Com::*,
-    },
+    Win32::{Media::MediaFoundation::*, System::Com::*},
     core::{BSTR, Interface, implement},
 };
 
 fn fail(e: windows::core::Error) -> Error {
     Error::Io(format!(
-        "Windows media playback failed: {e}. The codec may not be installed or the file may be damaged."
+        "Windows audio playback failed: {e}. The codec may not be installed or the file may be damaged."
     ))
 }
+
 #[implement(IMFMediaEngineNotify)]
 struct Notify(Arc<AtomicU32>);
 impl IMFMediaEngineNotify_Impl for Notify_Impl {
@@ -38,131 +29,111 @@ impl IMFMediaEngineNotify_Impl for Notify_Impl {
         Ok(())
     }
 }
-pub(super) struct Engine {
-    engine: IMFMediaEngine,
-    // Absent for audio, which needs no graphics device.
-    context: Option<ID3D11DeviceContext>,
-    device: Option<ID3D11Device>,
-    target: Option<ID3D11Texture2D>,
-    staging: Option<ID3D11Texture2D>,
-    size: (u32, u32),
-    error: Arc<AtomicU32>,
-    // Retain stream and manager until Shutdown finishes.
-    _stream: IMFByteStream,
-    _manager: Option<IMFDXGIDeviceManager>,
-    pub hardware: bool,
-    audio_only: bool,
-    kind: VideoKind,
-}
-pub(super) struct Runtime;
+
+pub(super) struct Runtime(bool);
 impl Runtime {
-    pub fn new() -> Result<Self, Error> {
-        // SAFETY: balanced on this single dedicated MTA worker by Drop below.
+    pub fn new(audio: bool) -> Result<Self, Error> {
+        // SAFETY: balanced on the dedicated MTA worker by Drop.
         unsafe {
             CoInitializeEx(None, COINIT_MULTITHREADED)
                 .ok()
                 .map_err(fail)?;
-            if let Err(e) = MFStartup(MF_VERSION, MFSTARTUP_FULL) {
+            if audio && let Err(e) = MFStartup(MF_VERSION, MFSTARTUP_FULL) {
                 CoUninitialize();
                 return Err(fail(e));
             }
         }
-        Ok(Self)
+        Ok(Self(audio))
     }
 }
 impl Drop for Runtime {
     fn drop(&mut self) {
-        // SAFETY: all Engine objects are dropped before Runtime.
+        // SAFETY: every Engine is dropped before its Runtime.
         unsafe {
-            let _ = MFShutdown();
+            if self.0 {
+                let _ = MFShutdown();
+            }
             CoUninitialize();
         }
     }
 }
-/// A hardware or, failing that, a WARP Direct3D device, and its context.
-///
-/// # Safety
-/// Calls into Direct3D; the returned objects own their resources.
-unsafe fn create_device() -> Result<(ID3D11Device, ID3D11DeviceContext, bool), Error> {
-    // SAFETY: out pointers are valid locals; see the function contract.
-    unsafe {
-        let mut device = None;
-        let mut context = None;
-        let flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
-        let hardware = D3D11CreateDevice(
-            None,
-            D3D_DRIVER_TYPE_HARDWARE,
-            HMODULE::default(),
-            flags,
-            None,
-            D3D11_SDK_VERSION,
-            Some(&mut device),
-            None,
-            Some(&mut context),
-        )
-        .is_ok();
-        if !hardware {
-            D3D11CreateDevice(
-                None,
-                D3D_DRIVER_TYPE_WARP,
-                HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                None,
-                D3D11_SDK_VERSION,
-                Some(&mut device),
-                None,
-                Some(&mut context),
-            )
-            .map_err(fail)?;
-        }
-        let device = device.ok_or_else(|| Error::Io("No video graphics device".into()))?;
-        let context = context.ok_or_else(|| Error::Io("No video graphics context".into()))?;
-        Ok((device, context, hardware))
-    }
+
+pub(super) enum Engine {
+    Video(ffmpeg::Engine),
+    Audio(AudioEngine),
 }
 impl Engine {
-    pub fn open(source: &VideoSource, volume: f64, muted: bool) -> Result<Self, Error> {
-        // SAFETY: worker has an MTA/MF runtime; COM references own all returned
-        // resources. Device is multithread-protected for MF's decoder threads.
+    pub fn open(
+        source: &VideoSource,
+        volume: f64,
+        muted: bool,
+        shared: Arc<(Mutex<Desired>, Condvar)>,
+        revision: u64,
+    ) -> Result<Self, Error> {
+        if source.kind.is_audio() {
+            AudioEngine::open(source, volume, muted).map(Self::Audio)
+        } else {
+            ffmpeg::Engine::open(source, volume, muted, shared, revision).map(Self::Video)
+        }
+    }
+    pub fn audio_only(&self) -> bool {
+        matches!(self, Self::Audio(_))
+    }
+    pub fn state(&mut self) -> Result<Option<VideoState>, Error> {
+        match self {
+            Self::Video(e) => e.state(),
+            Self::Audio(e) => e.state(),
+        }
+    }
+    pub fn configure(
+        &mut self,
+        paused: bool,
+        volume: f64,
+        muted: bool,
+        looping: bool,
+        seek: Option<f64>,
+    ) -> Result<(), Error> {
+        match self {
+            Self::Video(e) => e.configure(paused, volume, muted, looping, seek),
+            Self::Audio(e) => e.configure(paused, volume, muted, looping, seek),
+        }
+    }
+    pub fn frame(
+        &mut self,
+        state: &VideoState,
+        width: u32,
+        height: u32,
+    ) -> Result<Option<Frame>, Error> {
+        match self {
+            Self::Video(e) => e.frame(state, width, height),
+            Self::Audio(_) => Ok(None),
+        }
+    }
+}
+
+pub(super) struct AudioEngine {
+    engine: IMFMediaEngine,
+    error: Arc<AtomicU32>,
+    _stream: IMFByteStream,
+    kind: VideoKind,
+}
+impl AudioEngine {
+    fn open(source: &VideoSource, volume: f64, muted: bool) -> Result<Self, Error> {
+        // SAFETY: MTA/MF runtime is live; COM references own returned resources.
         unsafe {
-            let audio_only = source.kind.is_audio();
             let mut attrs = None;
-            MFCreateAttributes(&mut attrs, 4).map_err(fail)?;
+            MFCreateAttributes(&mut attrs, 1).map_err(fail)?;
             let attrs = attrs.ok_or_else(|| Error::Io("No media attributes".into()))?;
             let error = Arc::new(AtomicU32::new(0));
             let notify: IMFMediaEngineNotify = Notify(error.clone()).into();
             attrs
                 .SetUnknown(&MF_MEDIA_ENGINE_CALLBACK, &notify)
                 .map_err(fail)?;
-            let (device, context, manager, hardware) = if audio_only {
-                (None, None, None, false)
-            } else {
-                let (device, context, hardware) = create_device()?;
-                let multi: ID3D11Multithread = context.cast().map_err(fail)?;
-                let _ = multi.SetMultithreadProtected(true);
-                let mut token = 0;
-                let mut manager = None;
-                MFCreateDXGIDeviceManager(&mut token, &mut manager).map_err(fail)?;
-                let manager = manager.ok_or_else(|| Error::Io("No DXGI device manager".into()))?;
-                manager.ResetDevice(&device, token).map_err(fail)?;
-                attrs
-                    .SetUnknown(&MF_MEDIA_ENGINE_DXGI_MANAGER, &manager)
-                    .map_err(fail)?;
-                attrs
-                    .SetUINT32(
-                        &MF_MEDIA_ENGINE_VIDEO_OUTPUT_FORMAT,
-                        DXGI_FORMAT_B8G8R8A8_UNORM.0 as u32,
-                    )
-                    .map_err(fail)?;
-                (Some(device), Some(context), Some(manager), hardware)
-            };
             let factory: IMFMediaEngineClassFactory =
                 CoCreateInstance(&CLSID_MFMediaEngineClassFactory, None, CLSCTX_INPROC_SERVER)
                     .map_err(fail)?;
-            let mut flags = MF_MEDIA_ENGINE_DISABLE_LOCAL_PLUGINS.0 as u32;
-            if audio_only {
-                flags |= MF_MEDIA_ENGINE_AUDIOONLY.0 as u32;
-            }
+            let flags =
+                (MF_MEDIA_ENGINE_DISABLE_LOCAL_PLUGINS.0 | MF_MEDIA_ENGINE_AUDIOONLY.0) as u32;
             let engine = factory.CreateInstance(flags, &attrs).map_err(fail)?;
             let stream = MFCreateMFByteStreamOnStream(&super::stream::FileStream::make(
                 source.file.clone(),
@@ -171,35 +142,21 @@ impl Engine {
             .map_err(fail)?;
             let instance = Self {
                 engine,
-                context,
-                device,
-                target: None,
-                staging: None,
-                size: (0, 0),
                 error,
                 _stream: stream,
-                _manager: manager,
-                hardware,
-                audio_only,
                 kind: source.kind,
             };
             instance.engine.SetVolume(volume).map_err(fail)?;
             instance.engine.SetMuted(muted).map_err(fail)?;
             instance.engine.SetAutoPlay(false).map_err(fail)?;
             let ex: IMFMediaEngineEx = instance.engine.cast().map_err(fail)?;
-            // A synthetic local type hint, never a user URL. The byte stream
-            // owns the admitted file; BMFF references were rejected beforehand.
             ex.SetSourceFromByteStream(&instance._stream, &BSTR::from(source.kind.hint()))
                 .map_err(fail)?;
             Ok(instance)
         }
     }
-    /// Sound only: no picture is produced and polling can be slow.
-    pub fn audio_only(&self) -> bool {
-        self.audio_only
-    }
-    pub fn state(&self) -> Result<Option<VideoState>, Error> {
-        // SAFETY: synchronous queries on the worker-owned, live engine.
+    fn state(&self) -> Result<Option<VideoState>, Error> {
+        // SAFETY: synchronous queries on the worker-owned live engine.
         unsafe {
             if self.error.load(Ordering::Acquire) != 0 {
                 let detail = self
@@ -212,53 +169,35 @@ impl Engine {
                             .unwrap_or_else(|| e.GetErrorCode().to_string())
                     })
                     .unwrap_or_default();
-                // MF_E_UNSUPPORTED_BYTESTREAM_TYPE: Windows has no handler for the
-                // container. Ogg and Opus come with Microsoft's free Web Media Extensions.
                 if detail == "0xC00D36C4" && matches!(self.kind, VideoKind::Ogg | VideoKind::Opus) {
-                    return Err(Error::Io(
-                        "Windows can't play Ogg Vorbis or Opus files without an extra decoder. Install the free \u{201c}Web Media Extensions\u{201d} from the Microsoft Store, then open the file again.".into(),
-                    ));
+                    return Err(Error::Io("Windows can't play Ogg Vorbis or Opus files without an extra decoder. Install the free \u{201c}Web Media Extensions\u{201d} from the Microsoft Store, then open the file again.".into()));
                 }
-                let what = if self.audio_only { "Audio" } else { "Video" };
                 return Err(Error::Io(format!(
-                    "{what} could not be decoded ({detail}). This codec may be unsupported, or the file is damaged."
+                    "Audio could not be decoded ({detail}). This codec may be unsupported, or the file is damaged."
                 )));
             }
             if self.engine.GetReadyState() < 2 {
                 return Ok(None);
             }
-            let (w, h) = if self.audio_only {
-                if !self.engine.HasAudio().as_bool() {
-                    return Err(Error::Io("This file has no supported audio track".into()));
-                }
-                (0, 0)
-            } else {
-                if !self.engine.HasVideo().as_bool() {
-                    return Err(Error::Io("This file has no supported video track".into()));
-                }
-                let (mut w, mut h) = (0, 0);
-                self.engine
-                    .GetNativeVideoSize(Some(&mut w), Some(&mut h))
-                    .map_err(fail)?;
-                super::validate_dimensions(w, h)?;
-                (w, h)
-            };
+            if !self.engine.HasAudio().as_bool() {
+                return Err(Error::Io("This file has no supported audio track".into()));
+            }
             let duration = self.engine.GetDuration();
-            if !duration.is_finite() || duration <= 0.0 || duration > 7.0 * 24.0 * 3600.0 {
+            if !duration.is_finite() || duration <= 0.0 || duration > 604800.0 {
                 return Err(Error::Io("Invalid or unsupported media duration".into()));
             }
             Ok(Some(VideoState {
-                width: w,
-                height: h,
+                width: 0,
+                height: 0,
                 duration,
                 position: self.engine.GetCurrentTime().clamp(0.0, duration),
                 paused: self.engine.IsPaused().as_bool(),
                 ended: self.engine.IsEnded().as_bool(),
-                hardware: self.hardware,
+                hardware: false,
             }))
         }
     }
-    pub fn configure(
+    fn configure(
         &self,
         paused: bool,
         volume: f64,
@@ -266,7 +205,7 @@ impl Engine {
         looping: bool,
         seek: Option<f64>,
     ) -> Result<(), Error> {
-        // SAFETY: validated finite control values, called only on the worker.
+        // SAFETY: finite control values were validated by Player.
         unsafe {
             self.engine.SetVolume(volume).map_err(fail)?;
             self.engine.SetMuted(muted).map_err(fail)?;
@@ -282,121 +221,10 @@ impl Engine {
         }
         Ok(())
     }
-    pub fn frame(
-        &mut self,
-        state: &VideoState,
-        view_w: u32,
-        view_h: u32,
-    ) -> Result<Option<Frame>, Error> {
-        if self.audio_only {
-            return Ok(None);
-        }
-        let (Some(device), Some(context)) = (self.device.clone(), self.context.clone()) else {
-            return Err(Error::Io("No video graphics device".into()));
-        };
-        // SAFETY: textures are worker-owned and match the validated dimensions.
-        // Map/Unmap bound the lifetime of the readback pointer; each row respects
-        // RowPitch. Only the bounded presentation image is copied to the UI.
-        unsafe {
-            let mut pts = 0;
-            let result = (Interface::vtable(&self.engine).OnVideoStreamTick)(
-                Interface::as_raw(&self.engine),
-                &mut pts,
-            );
-            if result == S_FALSE {
-                return Ok(None);
-            }
-            result.ok().map_err(fail)?;
-            let (w, h) = super::presentation_size(state.width, state.height, view_w, view_h);
-            if self.size != (w, h) {
-                let desc = D3D11_TEXTURE2D_DESC {
-                    Width: w,
-                    Height: h,
-                    MipLevels: 1,
-                    ArraySize: 1,
-                    Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-                    SampleDesc: DXGI_SAMPLE_DESC {
-                        Count: 1,
-                        Quality: 0,
-                    },
-                    Usage: D3D11_USAGE_DEFAULT,
-                    BindFlags: D3D11_BIND_RENDER_TARGET.0 as u32,
-                    ..Default::default()
-                };
-                device
-                    .CreateTexture2D(&desc, None, Some(&mut self.target))
-                    .map_err(fail)?;
-                let desc = D3D11_TEXTURE2D_DESC {
-                    Usage: D3D11_USAGE_STAGING,
-                    BindFlags: 0,
-                    CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
-                    ..desc
-                };
-                device
-                    .CreateTexture2D(&desc, None, Some(&mut self.staging))
-                    .map_err(fail)?;
-                self.size = (w, h);
-            }
-            let target = self
-                .target
-                .as_ref()
-                .ok_or_else(|| Error::Io("No video surface".into()))?;
-            let staging = self
-                .staging
-                .as_ref()
-                .ok_or_else(|| Error::Io("No video readback surface".into()))?;
-            let surface: IDXGISurface = target.cast().map_err(fail)?;
-            self.engine
-                .TransferVideoFrame(
-                    &surface,
-                    None,
-                    &RECT {
-                        left: 0,
-                        top: 0,
-                        right: w as i32,
-                        bottom: h as i32,
-                    },
-                    None,
-                )
-                .map_err(fail)?;
-            context.CopyResource(staging, target);
-            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-            context
-                .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
-                .map_err(fail)?;
-            let row = w as usize * 4;
-            if mapped.pData.is_null() || (mapped.RowPitch as usize) < row {
-                context.Unmap(staging, 0);
-                return Err(Error::Io("Invalid video surface stride".into()));
-            }
-            let mut rgba = Vec::new();
-            if rgba.try_reserve_exact(row * h as usize).is_err() {
-                context.Unmap(staging, 0);
-                return Err(Error::MemoryBudget);
-            }
-            rgba.resize(row * h as usize, 0);
-            for y in 0..h as usize {
-                let src = std::slice::from_raw_parts(
-                    mapped.pData.cast::<u8>().add(y * mapped.RowPitch as usize),
-                    row,
-                );
-                let dst = &mut rgba[y * row..(y + 1) * row];
-                for (src, dst) in src.chunks_exact(4).zip(dst.chunks_exact_mut(4)) {
-                    dst.copy_from_slice(&[src[2], src[1], src[0], 255]);
-                }
-            }
-            context.Unmap(staging, 0);
-            Ok(Some(Frame {
-                width: w,
-                height: h,
-                rgba,
-            }))
-        }
-    }
 }
-impl Drop for Engine {
+impl Drop for AudioEngine {
     fn drop(&mut self) {
-        // SAFETY: Shutdown precedes stream/device release and MFShutdown.
+        // SAFETY: Shutdown precedes stream release and MFShutdown.
         unsafe {
             let _ = self.engine.Shutdown();
         }

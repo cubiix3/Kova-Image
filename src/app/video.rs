@@ -355,7 +355,15 @@ impl App {
                 "File size",
                 format!("{:.2} MiB", stamp.bytes as f64 / 1048576.),
             ));
-            fields.push(("Playback", "Windows Media Foundation".into()));
+            fields.push((
+                "Playback",
+                if audio {
+                    "Windows Media Foundation"
+                } else {
+                    "FFmpeg"
+                }
+                .into(),
+            ));
             fields.push(("Location", path.to_string_lossy().into_owned()));
             let fields = fields
                 .into_iter()

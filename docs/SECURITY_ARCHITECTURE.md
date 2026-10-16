@@ -10,7 +10,7 @@
 | Decoder allocation allowance | 256 MiB, where the codec honors image-rs Limits. JPEG XL has its own 512 MiB allowance (32-bit float planes); a larger picture ends in a memory error |
 | Camera RAW file | 1 GiB, read through seeks for the embedded preview only |
 | SVG | 16 MiB (also after gunzip); drawn at most 8,192 pixels a side; embedded `data:` images 64 Mi pixels in total |
-| Stored animation RGBA | 128 MiB, with space reserved for the next frame |
+| Stored animation RGBA | 128 MiB of fitted frames, with space reserved for the next frame |
 | Animation frame count | Fewer than 2,000 frames |
 | Retained cache pixel data | 192 MiB / at most 32 entries |
 | Decode threads | 1 |
@@ -144,20 +144,27 @@ The audio player creates no Direct3D device.
 
 Videos are limited to 32 GiB local regular files, 16,777,216 native pixels,
 8,192 pixels per side and seven days of finite duration. Presentation buffers
-fit the window and are capped at 3840 x 2160. The Media Engine can parse/allocate before reporting
-native dimensions: this is not an OS decoder allocation cap or a sandbox.
+fit the window and are capped at 3840 x 2160. FFmpeg probe and playback decoders
+receive the pixel/sample bounds; individual FFmpeg allocations are limited to
+64 MiB. Native reference frames and dav1d allocations are additional costs:
+this is not a total-process RAM cap or a sandbox.
 
 A retained read-only file handle denies writes/deletion during playback. The
-engine receives an IStream-backed byte stream and a synthetic container hint,
-never a user-supplied URL. Calling Load after SetSourceFromByteStream is avoided:
-it would start a new URL load instead of retaining the admitted stream.
+video decoder receives custom read/seek callbacks over that handle. Protocols
+are not compiled in, the protocol whitelist is empty and secondary IO opens
+are denied. It receives no user-supplied URL or filename to reopen. Audio-only
+files retain the IStream-backed MF byte stream and synthetic container hint.
 
 MP4/MOV box traversal has depth, entry-count and length limits; media payloads
 are skipped by seeking. External data references, reference movies and compressed
 movie headers are rejected. UNC/mapped network video paths and leaf reparse
 points other than cloud placeholders are rejected. Ancestor reparse races remain a limitation, as for images.
-Locally registered Media Foundation plugins are disabled. Windows system codecs
-still parse hostile bytes in process; native faults are not caught by Rust.
+Locally registered Media Foundation plugins are disabled for audio. Video uses
+the packaged FFmpeg and dav1d DLLs. Those libraries and Windows audio codecs
+parse hostile bytes in process; native faults are not caught by Rust. FFmpeg
+interrupt and IO callbacks check revision/shutdown, but an active codec call
+remains cooperative. Compressed packets above 16 MiB are rejected after demux,
+which is a processing bound rather than a preallocation guarantee.
 
 One coalesced desired state, one playback worker and one pending UI update bound
 application-level work. Delete awaits engine shutdown on the Shell worker before

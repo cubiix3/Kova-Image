@@ -1,6 +1,7 @@
-//! Lazy, bounded local-video worker. MF owns audio/video synchronization. The
-//! same worker plays audio files, which have no picture.
+//! Lazy, bounded media worker. Videos use bundled decoders; audio uses MF.
+mod ffmpeg;
 mod native;
+mod output;
 mod stream;
 use crate::{error::Error, media::VideoSource};
 use std::{
@@ -214,9 +215,15 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
             reported_state = None;
             opened = Instant::now();
             if let Some(source) = &desired.source {
-                let result = native::Runtime::new().and_then(|r| {
+                let result = native::Runtime::new(source.kind.is_audio()).and_then(|r| {
                     runtime = Some(r);
-                    native::Engine::open(source, desired.volume, desired.muted)
+                    native::Engine::open(
+                        source,
+                        desired.volume,
+                        desired.muted,
+                        shared.clone(),
+                        desired.revision,
+                    )
                 });
                 match result {
                     Ok(e) => engine = Some(e),

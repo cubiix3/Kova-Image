@@ -23,6 +23,14 @@ $destinationRoot = (Resolve-Path -LiteralPath $Destination).Path
 $stage = Join-Path $destinationRoot ("Kova-Image-" + $version + "-x64-" + [guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $stage
 Copy-Item -LiteralPath target/release/kova-image.exe -Destination $stage
+$sdk = if ($env:KOVA_FFMPEG_DIR) { $env:KOVA_FFMPEG_DIR } else { Join-Path $root 'artifacts/ffmpeg/sdk' }
+if (-not (Test-Path -LiteralPath "$sdk/sources/COPYING.LGPLv2.1")) {
+    throw 'Bundled decoder sources and license are missing. Run scripts/build-ffmpeg.ps1.'
+}
+Get-ChildItem -LiteralPath "$sdk/bin" -Filter '*.dll' | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination $stage
+}
+Copy-Item -LiteralPath "$sdk/sources" -Destination (Join-Path $stage 'decoder-sources') -Recurse
 Copy-Item -LiteralPath target/release/kova_thumbnails.dll -Destination $stage
 foreach ($file in @('README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md', 'SECURITY.md', 'Cargo.lock')) {
     Copy-Item -LiteralPath $file -Destination $stage
@@ -74,7 +82,8 @@ The Microsoft Visual C++ 2015-2022 Redistributable (x64) may be required.
 This package is unsigned and experimental. No installer or associations are applied.
 kova_thumbnails.dll next to kova-image.exe shows Explorer previews once you opt in under Settings.
 If hardware rendering fails, run kova-image.exe --software.
-Video codecs are supplied by Windows; not every container/codec combination plays.
+Video decoders are bundled beside the executable. Keep all DLLs with the app.
+Audio-only files use Windows Media Foundation. Decoder sources and licenses are in decoder-sources.
 Use Settings to opt in to Open with registration after choosing a permanent folder.
 No stable release is created by this script.
 '@ | Set-Content -Encoding utf8 -LiteralPath (Join-Path $stage 'RUNNING.txt')
