@@ -14,10 +14,12 @@ use crate::{
     format::Format,
     security::{self, Ticket},
 };
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 /// A grid of at most this many tiles; real files have a few dozen.
 const MAX_TILES: usize = 4096;
+/// Include cropped-away source pixels when bounding grid decode work.
+const MAX_GRID_SOURCE_PIXELS: u64 = security::MAX_PIXELS * 4;
 
 fn bad(message: &str) -> Error {
     Error::Corrupted(format!("HEIF: {message}"))
@@ -35,7 +37,7 @@ struct Canvas {
 #[derive(Clone, Debug)]
 enum Colour {
     Codes { primaries: u16, transfer: u16 },
-    Icc(Vec<u8>),
+    Icc(Arc<[u8]>),
 }
 impl From<&Colr> for Colour {
     fn from(colr: &Colr) -> Self {
@@ -320,11 +322,15 @@ impl Context<'_> {
         let mut size = None;
         let mut coded = None;
         for (index, id) in tiles.into_iter().enumerate() {
+            self.ticket.check()?;
             let tile_item = self
                 .container
                 .item(id)
                 .ok_or_else(|| bad("a grid tile is missing"))?;
             let tile = self.item(reader, tile_item, alpha, format, 1)?;
+            if size.is_none() {
+                validate_grid((rows, columns), (width, height), (tile.width, tile.height))?;
+            }
             let (tw, th) = *size.get_or_insert((tile.width, tile.height));
             if (tile.width, tile.height) != (tw, th) {
                 return Err(bad("grid tiles differ in size"));
@@ -335,7 +341,7 @@ impl Context<'_> {
                 (index / columns) as u64 * u64::from(th),
             );
             if x0 >= u64::from(width) || y0 >= u64::from(height) {
-                continue;
+                return Err(bad("a grid tile lies outside the canvas"));
             }
             let (x0, y0) = (x0 as usize, y0 as usize);
             let copy = (tw as usize).min(width as usize - x0) * stride;
@@ -352,6 +358,31 @@ impl Context<'_> {
             coded,
         })
     }
+}
+
+/// Every declared column and row must cover part of the output, and together
+/// they must cover the whole canvas. Check as soon as the first tile is known,
+/// before an invalid small canvas can cause thousands of needless decodes.
+fn validate_grid(
+    (rows, columns): (usize, usize),
+    (width, height): (u32, u32),
+    (tile_width, tile_height): (u32, u32),
+) -> Result<(), Error> {
+    let axis = |count: usize, output: u32, tile: u32| {
+        output != 0 && tile != 0 && u64::from(output).div_ceil(u64::from(tile)) == count as u64
+    };
+    if !axis(columns, width, tile_width) || !axis(rows, height, tile_height) {
+        return Err(bad("the grid dimensions and its tiles do not match"));
+    }
+    let source_pixels = (rows as u64)
+        .checked_mul(columns as u64)
+        .and_then(|n| n.checked_mul(u64::from(tile_width)))
+        .and_then(|n| n.checked_mul(u64::from(tile_height)))
+        .ok_or(Error::Dimensions)?;
+    if source_pixels > MAX_GRID_SOURCE_PIXELS {
+        return Err(Error::Dimensions);
+    }
+    Ok(())
 }
 
 /// The auxiliary picture types that mean "alpha": the AV1 and MIAF names, and
@@ -468,5 +499,40 @@ impl Planar for hevc::Frame {
     fn row(&self, index: usize, y: usize, out: &mut [u16]) {
         let width = self.plane_width[index];
         out[..width].copy_from_slice(&self.planes[index][y * width..(y + 1) * width]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cropped_grid_edges_still_count_toward_decode_work() {
+        // Every row intersects the narrow canvas, but source pixels must also
+        // be bounded: geometry alone would allow a billion decoded pixels.
+        assert_eq!(
+            validate_grid((256, 1), (1, 32768), (32768, 128)),
+            Err(Error::Dimensions)
+        );
+        validate_grid((256, 1), (1, 32768), (4096, 128)).unwrap();
+    }
+
+    #[test]
+    fn grids_require_every_tile_to_intersect_and_cover_the_canvas() {
+        for canvas in [(64, 48), (63, 47), (33, 25)] {
+            validate_grid((2, 2), canvas, (32, 24)).unwrap();
+        }
+        for (shape, canvas, tile) in [
+            ((2, 2), (1, 1), (32, 24)),
+            ((2, 2), (32, 48), (32, 24)),
+            ((2, 2), (64, 24), (32, 24)),
+            ((2, 2), (65, 48), (32, 24)),
+            ((2, 2), (64, 49), (32, 24)),
+            ((64, 64), (1, 1), (4096, 4096)),
+            ((1, 1), (0, 1), (32, 24)),
+            ((1, 1), (32, 24), (0, 24)),
+        ] {
+            assert!(validate_grid(shape, canvas, tile).is_err());
+        }
     }
 }

@@ -194,6 +194,7 @@ impl AudioEngine {
                 paused: self.engine.IsPaused().as_bool(),
                 ended: self.engine.IsEnded().as_bool(),
                 hardware: false,
+                audio_unavailable: false,
             }))
         }
     }

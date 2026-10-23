@@ -67,6 +67,23 @@ impl App {
                     self.view.pan.1
                 );
                 state.push_str(&format!(
+                    "loading={}\nrefining={}\nhas_image={}\ndisplayed={}\nrequested={}\nmedia_ready={}\n",
+                    ui.get_loading(),
+                    self.refining,
+                    ui.get_has_image(),
+                    self.displayed
+                        .as_deref()
+                        .and_then(|p| p.file_name())
+                        .unwrap_or_default()
+                        .to_string_lossy(),
+                    self.requested
+                        .as_deref()
+                        .and_then(|p| p.file_name())
+                        .unwrap_or_default()
+                        .to_string_lossy(),
+                    self.video_stamp.is_none() || self.video_state.is_some(),
+                ));
+                state.push_str(&format!(
                     "feedback={}\nviewport_width={}\nviewport_height={}\ndisplay_width={}\ndisplay_height={}\ncontrols_left={}\ncontrols_top={}\ncontrols_width={}\ncontrols_height={}\n",
                     ui.get_feedback(), ui.get_viewport_width(), ui.get_viewport_height(),
                     ui.get_display_width(), ui.get_display_height(), ui.get_controls_left(),

@@ -200,6 +200,12 @@ impl App {
                 self.cursor = (position.x as f32 / scale, position.y as f32 / scale);
                 self.cursor_physical = Some((position.x, position.y));
                 self.wake_chrome();
+                if self.window_resize.is_some() {
+                    self.resize_window((position.x, position.y));
+                    return true;
+                }
+                let edge = self.resize_edge();
+                self.resize_cursor(edge);
                 if self.window_drag.is_some() {
                     self.move_window((position.x, position.y));
                 } else if let Some(old) = self.drag {
@@ -208,14 +214,28 @@ impl App {
                     self.drag = Some(self.cursor);
                     self.update_view();
                 }
+                if edge.is_some() && !self.pointer_down {
+                    return true;
+                }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 ui.set_keyboard_mode(false);
                 self.pointer_down = *state == ElementState::Pressed;
                 self.wake_chrome();
                 if *state == ElementState::Released {
+                    let resizing =
+                        *button == MouseButton::Left && self.window_resize.take().is_some();
                     self.drag = None;
                     self.window_drag = None;
+                    if resizing {
+                        self.resize_cursor(self.resize_edge());
+                        return true;
+                    }
+                } else if *button == MouseButton::Left
+                    && let Some(edge) = self.resize_edge()
+                {
+                    self.begin_window_resize(edge);
+                    return true;
                 }
                 if ui.get_show_settings() || ui.get_show_info() || ui.get_show_more() {
                     return false;
@@ -267,6 +287,9 @@ impl App {
                 }
                 return true;
             }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.resize_scale_changed(*scale_factor);
+            }
             WindowEvent::Resized(_) => {
                 self.hidden = ui
                     .window()
@@ -285,6 +308,7 @@ impl App {
                 ui.set_keyboard_mode(false);
                 self.drag = None;
                 self.window_drag = None;
+                self.window_resize = None;
                 self.pointer_down = false;
                 self.modifiers = ModifiersState::empty();
             }

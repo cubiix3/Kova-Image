@@ -71,7 +71,10 @@ fn parse_nal(unit: &[u8]) -> Result<Nal<'_>, Error> {
 
 /// The NAL units of an `hvcC` box: (type, unit) pairs, and the size in bytes of
 /// the length prefix that item data uses.
-fn configuration(config: &[u8]) -> Result<(Vec<Vec<u8>>, usize), Error> {
+const MAX_NAL_UNITS: usize = 100_000;
+
+fn configuration<'a>(config: &'a [u8], ticket: &Ticket) -> Result<(Vec<&'a [u8]>, usize), Error> {
+    ticket.check()?;
     if config.len() < 23 || config[0] != 1 {
         return Err(bad("the decoder configuration is invalid"));
     }
@@ -84,8 +87,12 @@ fn configuration(config: &[u8]) -> Result<(Vec<Vec<u8>>, usize), Error> {
             .get(at..at + 3)
             .ok_or_else(|| bad("the configuration is cut short"))?;
         let count = usize::from(u16::from_be_bytes([header[1], header[2]]));
+        if count > MAX_NAL_UNITS - units.len() {
+            return Err(bad("too many NAL units"));
+        }
         at += 3;
         for _ in 0..count {
+            ticket.check()?;
             let size = config
                 .get(at..at + 2)
                 .map(|b| usize::from(u16::from_be_bytes([b[0], b[1]])))
@@ -93,7 +100,8 @@ fn configuration(config: &[u8]) -> Result<(Vec<Vec<u8>>, usize), Error> {
             let unit = config
                 .get(at + 2..at + 2 + size)
                 .ok_or_else(|| bad("the configuration is cut short"))?;
-            units.push(unit.to_vec());
+            parse_nal(unit)?;
+            units.push(unit);
             at += 2 + size;
         }
     }
@@ -103,14 +111,18 @@ fn configuration(config: &[u8]) -> Result<(Vec<Vec<u8>>, usize), Error> {
 /// Decodes the picture of one HEIF item: `config` is the `hvcC` payload and
 /// `data` the item data, a sequence of length-prefixed NAL units.
 pub fn decode(config: &[u8], data: &[u8], ticket: &Ticket) -> Result<Frame, Error> {
-    let (parameter_units, length_size) = configuration(config)?;
+    let (parameter_units, length_size) = configuration(config, ticket)?;
     let mut sps_units = Vec::new();
     let mut pps_units: HashMap<u32, Vec<u8>> = HashMap::new();
-    let mut slices: Vec<Vec<u8>> = Vec::new();
+    let mut slices: Vec<&[u8]> = Vec::new();
     // Parameter sets may also be repeated in the item data itself.
-    let mut units: Vec<Vec<u8>> = parameter_units;
+    let mut units = parameter_units;
     let mut at = 0;
     while at < data.len() {
+        ticket.check()?;
+        if units.len() >= MAX_NAL_UNITS {
+            return Err(bad("too many NAL units"));
+        }
         let prefix = data
             .get(at..at + length_size)
             .ok_or_else(|| bad("a NAL unit length is cut short"))?;
@@ -123,14 +135,13 @@ pub fn decode(config: &[u8], data: &[u8], ticket: &Ticket) -> Result<Frame, Erro
                     .ok_or_else(|| bad("a NAL unit is too large"))?,
             )
             .ok_or_else(|| bad("a NAL unit runs past the data"))?;
-        units.push(unit.to_vec());
+        parse_nal(unit)?;
+        units.push(unit);
         at += size;
-        if units.len() > 100_000 {
-            return Err(bad("too many NAL units"));
-        }
     }
     for unit in units {
-        let nal = parse_nal(&unit)?;
+        ticket.check()?;
+        let nal = parse_nal(unit)?;
         if nal.layer != 0 {
             continue;
         }
@@ -149,7 +160,7 @@ pub fn decode(config: &[u8], data: &[u8], ticket: &Ticket) -> Result<Frame, Erro
         return Err(bad("the item holds no picture data"));
     }
     // The SPS that the first slice's PPS names.
-    let first = parse_nal(&slices[0])?;
+    let first = parse_nal(slices[0])?;
     let first_rbsp = unescape(first.payload).0;
     let pps_id = slice::peek_pps_id(&first_rbsp, first.kind)?;
     let pps_rbsp = pps_units
@@ -162,7 +173,10 @@ pub fn decode(config: &[u8], data: &[u8], ticket: &Ticket) -> Result<Frame, Erro
     };
     let sps = sps_units
         .iter()
-        .map(|rbsp| parse_sps(rbsp))
+        .map(|rbsp| {
+            ticket.check()?;
+            parse_sps(rbsp)
+        })
         .collect::<Result<Vec<Sps>, _>>()?
         .into_iter()
         .find(|s| s.id == sps_id)
@@ -294,6 +308,39 @@ mod tests {
     use super::*;
     use crate::security::Generation;
     use std::path::PathBuf;
+
+    #[test]
+    fn configuration_rejects_empty_and_excessive_units_before_expansion() {
+        let ticket = Generation::default().next();
+        let mut config = vec![0; 23];
+        config[0] = 1;
+        config[22] = 1;
+        config.extend_from_slice(&[32, 0, 1, 0, 0]);
+        assert!(
+            matches!(configuration(&config, &ticket), Err(Error::Corrupted(message)) if message.contains("NAL unit header"))
+        );
+
+        config.truncate(23);
+        config[22] = 2;
+        config.extend_from_slice(&[32, 0xff, 0xff]);
+        for _ in 0..u16::MAX {
+            config.extend_from_slice(&[0, 2, 64, 1]);
+        }
+        config.extend_from_slice(&[32, 0xff, 0xff]);
+        // There is no second payload: the declared aggregate must be refused
+        // before attempting to read or allocate its entries.
+        assert!(
+            matches!(configuration(&config, &ticket), Err(Error::Corrupted(message)) if message.contains("too many NAL"))
+        );
+    }
+
+    #[test]
+    fn configuration_checks_cancellation_before_parsing() {
+        let generation = Generation::default();
+        let stale = generation.next();
+        let _new = generation.next();
+        assert_eq!(configuration(&[], &stale).unwrap_err(), Error::Cancelled);
+    }
 
     /// Splits an Annex B stream into an `hvcC` configuration and length-prefixed
     /// item data, as a HEIF file holds them.

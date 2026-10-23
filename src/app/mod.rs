@@ -120,6 +120,7 @@ struct App {
     cursor_physical: Option<(f64, f64)>,
     drag: Option<(f32, f32)>,
     window_drag: Option<WindowDrag>,
+    window_resize: Option<resize::WindowResize>,
     pointer_down: bool,
     started: Instant,
     measure: Option<PathBuf>,
@@ -270,6 +271,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         cursor_physical: None,
         drag: None,
         window_drag: None,
+        window_resize: None,
         pointer_down: false,
         started,
         measure,
@@ -341,6 +343,7 @@ mod diagnostics;
 mod events;
 mod preferences;
 mod presentation;
+mod resize;
 mod shell;
 mod slideshow;
 mod video;

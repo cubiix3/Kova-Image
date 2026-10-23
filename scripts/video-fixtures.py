@@ -59,6 +59,12 @@ for name, video, audio in clips:
     ], check=True)
 print(output)
 if args.tests:
+    # No sound device is needed for the opt-in 60 fps worker/upload pacing check.
+    subprocess.run([
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+        "testsrc2=size=64x48:rate=60", "-t", "1.2", "-an", "-c:v", "libx264",
+        "-pix_fmt", "yuv420p", str(output / "codec-pacing.mp4"),
+    ], check=True)
     subprocess.run([
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
         "testsrc2=size=64x48:rate=10", "-t", "1.2", "-an", "-c:v", "libx264",
@@ -76,8 +82,9 @@ if args.tests:
         str(output / "codec-landscape.mp4"),
     ], check=True)
     subprocess.run([
-        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(output / "codec-landscape.mp4"),
-        "-c", "copy", "-metadata:s:v:0", "rotate=90", str(output / "codec-rotated.mp4"),
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-display_rotation", "90",
+        "-i", str(output / "codec-landscape.mp4"),
+        "-c", "copy", str(output / "codec-rotated.mp4"),
     ], check=True)
     subprocess.run([
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(output / "codec-rotated.mp4"),

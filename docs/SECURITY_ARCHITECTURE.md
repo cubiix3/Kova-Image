@@ -21,6 +21,10 @@
 | Retained folder path names | 16 MiB |
 | Frame duration | 10 ms through 60 seconds; GIF frames of 10 ms or less show for 100 ms |
 | Settings read | 8 KiB |
+| HEIF metadata | 16 MiB; 20,000 items/properties/location records; 65,536 aggregate extents, including repeated boxes |
+| HEIF property/reference links | 320,000 aggregate entries of each kind; ICC/config bytes shared between items |
+| HEIF grid work | 4,096 tiles; declared rows/columns must cover the output; at most 134,217,728 decoded source pixels per grid, including cropped edges |
+| HEVC NAL units | 100,000 across configuration and item data; borrowed input slices and cooperative cancellation |
 
 Zero dimensions and overflowing pixel/byte arithmetic are rejected. Dimensions
 are checked before allocating output buffers. Decoder constructors still parse
@@ -43,10 +47,13 @@ browser rendering are invoked.
   opening an SVG cannot read another file or touch the network.
 - **Camera RAW** is never developed. The file is scanned for JPEG streams, whose
   structure is checked before decoding (baseline and progressive only), and the
-  largest one is shown.
+  largest preview within the input/pixel limits is shown.
 - **AVIF** runs rav1d on a dedicated thread with a frame size limit. The vendored
   copy declares its C ABI `C-unwind`, so a panic is caught, the decoder is
-  abandoned and the request ends in an error; the process survives.
+  abandoned and the request ends in an error; the process survives. Further AVIF
+  decoding is disabled until restart, bounding abandoned fault state to one
+  context. Ordinary decoder errors release their compressed packet normally
+  and do not disable subsequent files.
 - **HEIC** is decoded by Kova Image's own HEVC intra decoder
   (`src/codecs/hevc`). Every read is bounds checked; picture dimensions are
   checked against the pixel limits and the decode budget, and the NAL unit count
@@ -54,6 +61,10 @@ browser rendering are invoked.
   panic. This is hand-written parsing of untrusted data in safe Rust, but it has
   had no external fuzzing.
 - **JPEG XL** runs inside jxl-oxide's allocation tracker.
+- **HEIF metadata** shares ICC/configuration payloads rather than cloning them
+  per item. Location, extent, property, association and reference counts are
+  cumulative across repeated boxes. Grid geometry and source-pixel work are
+  admitted after the first tile, before decoding subsequent tiles.
 
 ## Explorer thumbnail provider
 

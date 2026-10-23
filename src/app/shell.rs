@@ -25,7 +25,8 @@ impl App {
                     | Action::Undo
             )
             && ((self.image.is_none() && self.video_stamp.is_none())
-                || self.displayed != self.requested)
+                || self.displayed != self.requested
+                || (self.video_stamp.is_some() && self.video_state.is_none()))
         {
             self.status("Wait for the media to finish loading");
             return;

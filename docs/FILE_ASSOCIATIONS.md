@@ -24,8 +24,9 @@ Spaces, Unicode, long paths and filenames resembling switches remain file
 arguments. Each activation starts an independent window; there is no fragile
 single-instance IPC. The native file picker and file drop use the same loader.
 
-Images: JPG/JPEG/JPE, PNG/APNG, GIF, WebP, BMP, TIF/TIFF, ICO, TGA, PBM/PGM/PPM/PNM/PAM,
-QOI, DDS, HDR, EXR, farbfeld (FF), JXL, AVIF, HEIC/HEIF, SVG/SVGZ and the camera RAW
+Images: JPG/JPEG/JPE/JFIF/JIF, PNG/APNG, GIF, WebP, BMP, TIF/TIFF, ICO,
+TGA/TARGA/ICB/VDA/VST, PBM/PGM/PPM/PNM/PAM, QOI, DDS, HDR, EXR, farbfeld (FF),
+JXL, AVIF, HEIC/HEIF/HIF, SVG/SVGZ and the camera RAW
 extensions listed in `src/format.rs`.
 Videos: MP4/M4V, MOV, WebM and MKV, subject to installed Windows codecs.
 Audio: MP3, M4A/M4B, AAC, WAV, FLAC, OGG/OGA, Opus and WMA, subject to installed Windows codecs.

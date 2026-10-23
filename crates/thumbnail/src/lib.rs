@@ -67,7 +67,7 @@ fn windows_reads(extension: &str, content: Format) -> bool {
     matches!(
         (extension.to_ascii_lowercase().as_str(), content),
         ("png", Format::Png)
-            | ("jpg" | "jpeg" | "jpe", Format::Jpeg)
+            | ("jpg" | "jpeg" | "jpe" | "jfif" | "jif", Format::Jpeg)
             | ("gif", Format::Gif)
             | ("bmp", Format::Bmp)
             | ("tif" | "tiff", Format::Tiff)
@@ -360,6 +360,8 @@ mod tests {
     fn windows_is_asked_only_for_content_it_reads() {
         assert!(windows_reads("PNG", Format::Png));
         assert!(windows_reads("jpe", Format::Jpeg));
+        assert!(windows_reads("JFIF", Format::Jpeg));
+        assert!(windows_reads("jif", Format::Jpeg));
         assert!(windows_reads("tiff", Format::Tiff));
         // A TGA named .png, a PNG named .jpg and APNG are decoded here.
         assert!(!windows_reads("png", Format::Tga));

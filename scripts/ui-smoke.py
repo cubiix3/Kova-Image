@@ -21,6 +21,8 @@ user.PostMessageW.argtypes = [w.HWND, w.UINT, w.WPARAM, w.LPARAM]
 user.GetWindowThreadProcessId.argtypes = [w.HWND, ctypes.POINTER(w.DWORD)]
 user.GetWindowTextW.argtypes = [w.HWND, w.LPWSTR, ctypes.c_int]
 user.SetWindowPos.argtypes = [w.HWND, w.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, w.UINT]
+user.GetWindowRect.argtypes = [w.HWND, ctypes.POINTER(w.RECT)]
+user.GetClientRect.argtypes = [w.HWND, ctypes.POINTER(w.RECT)]
 callback_type = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
 user.EnumWindows.argtypes = [callback_type, w.LPARAM]
 
@@ -44,6 +46,18 @@ if "--software" in sys.argv:
 if scenario == "video":
     (ROOT / "artifacts/video-fixtures/clip0.png").write_bytes((fixture.parent / "image2.png").read_bytes())
     arguments.append(str(ROOT / "artifacts/video-fixtures/clip1.mp4"))
+elif scenario == "video-loading":
+    folder = OUT / "video-loading-folder"
+    folder.mkdir(exist_ok=True)
+    (folder / "0-image.png").write_bytes((fixture.parent / "image2.png").read_bytes())
+    (folder / "1-valid.mp4").write_bytes((ROOT / "tests/fixtures/codec-pacing.mp4").read_bytes())
+    # A self-contained admitted container with no tracks fails in the native
+    # open, after the debug-only delay. All test data is generated and local.
+    (folder / "2-broken.mp4").write_bytes(
+        b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isomiso2\x00\x00\x00\x08moov"
+    )
+    env["KOVA_TEST_VIDEO_OPEN_DELAY_MS"] = "5000"
+    arguments.append(str(folder / "0-image.png"))
 elif scenario in ("file", "codec", "animation"):
     # Any file, for looking at: --state=file --path=C:\Music\song.mp3
     arguments.append(next(arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--path=")))
@@ -113,7 +127,7 @@ def keep_background():
     user.SetWindowPos(hwnd, 1, 0, 0, 0, 0, 0x0013)
 
 
-def snapshot(name, refresh=True):
+def snapshot(name, refresh=True, wait_loading=True):
     time.sleep(0.18)
     old = state_file.stat().st_mtime_ns if state_file.exists() else 0
     key(0x7B)  # F12, debug-only capture
@@ -127,9 +141,9 @@ def snapshot(name, refresh=True):
         key(0x7B)
         wait_for(lambda: state_file.stat().st_mtime_ns != old)
     values = dict(line.split("=", 1) for line in state_file.read_text().splitlines() if "=" in line)
-    if values.get("status", "").startswith("Loading"):
+    if wait_loading and (values.get("loading") == "true" or values.get("status", "").startswith("Loading")):
         deadline = time.monotonic() + 20
-        while values.get("status", "").startswith("Loading"):
+        while values.get("loading") == "true" or values.get("status", "").startswith("Loading"):
             if time.monotonic() > deadline:
                 raise AssertionError("Image did not finish loading")
             time.sleep(0.2)
@@ -170,7 +184,104 @@ try:
     wait_for(lambda: (user.EnumWindows(enum, 0), bool(windows))[1])
     hwnd = windows[0]
     keep_background()
-    if scenario == "video":
+    if scenario == "resize":
+        wait_for(state_file.exists, seconds=25)
+
+        def bounds():
+            rectangle = w.RECT()
+            assert user.GetWindowRect(hwnd, ctypes.byref(rectangle))
+            return (rectangle.left, rectangle.top, rectangle.right - rectangle.left,
+                    rectangle.bottom - rectangle.top)
+
+        def drag_border(point, delta):
+            def packed(x, y):
+                return (x & 0xffff) | ((y & 0xffff) << 16)
+
+            x, y = point
+            user.PostMessageW(hwnd, 0x200, 0, packed(x, y))
+            user.PostMessageW(hwnd, 0x201, 1, packed(x, y))
+            time.sleep(0.1)
+            user.PostMessageW(hwnd, 0x200, 1, packed(x + delta[0], y + delta[1]))
+            time.sleep(0.15)
+            user.PostMessageW(hwnd, 0x202, 0, packed(x + delta[0], y + delta[1]))
+
+        initial = snapshot("resize-initial")
+        # Post input to our own window, including outside-client captured drags.
+        # Check real window bounds rather than resizing it through the test API.
+        for horizontal, vertical in [(-1, -1), (0, -1), (1, -1), (-1, 0),
+                                     (1, 0), (-1, 1), (0, 1), (1, 1)]:
+            user.SetWindowPos(hwnd, None, 100, 100, 1080, 740, 0x0014)
+            time.sleep(0.15)
+            before = bounds()
+            client = w.RECT()
+            assert user.GetClientRect(hwnd, ctypes.byref(client))
+            x = 2 if horizontal < 0 else client.right - 2 if horizontal > 0 else client.right // 2
+            y = 2 if vertical < 0 else client.bottom - 2 if vertical > 0 else client.bottom // 2
+            drag_border((x, y), (horizontal * 70, vertical * 50))
+            expected = (before[0] - (70 if horizontal < 0 else 0),
+                        before[1] - (50 if vertical < 0 else 0),
+                        before[2] + (70 if horizontal else 0),
+                        before[3] + (50 if vertical else 0))
+            wait_for(lambda: bounds() == expected)
+
+        user.SetWindowPos(hwnd, None, 100, 100, 1080, 740, 0x0014)
+        time.sleep(0.15)
+        before = bounds()
+        drag_border((2, 2), (2000, 2000))
+        time.sleep(0.15)
+        after = bounds()
+        # Opposite edges stay anchored even when the drag reaches minimum size.
+        assert after[0] + after[2] == before[0] + before[2]
+        assert after[1] + after[3] == before[1] + before[3]
+        values = snapshot("resize-minimum")
+        assert int(values["width"]) >= 640 and int(values["height"]) >= 420
+        assert values["pan_x"] == initial["pan_x"] and values["pan_y"] == initial["pan_y"]
+        print("PASS: eight edge/corner drags, anchored minimum bounds, image pan unchanged")
+    elif scenario == "video-loading":
+        wait_for(state_file.exists, seconds=25)
+        key(0xBB)
+        initial = snapshot("video-loading-image")
+        # Zoom can trigger a sharper decode. Establish the retained reference
+        # after that decode and a following render, on both renderers.
+        deadline = time.monotonic() + 10
+        while initial["refining"] == "true":
+            if time.monotonic() > deadline:
+                raise AssertionError("Zoom refinement did not complete")
+            initial = snapshot("video-loading-image")
+        initial = snapshot("video-loading-image")
+        key(0x27)
+        pending = snapshot("video-loading-pending", refresh=False, wait_loading=False)
+        assert pending["loading"] == "true" and pending["media_ready"] == "false", pending
+        assert pending["filename"] == pending["displayed"] == "0-image.png"
+        assert pending["requested"] == "1-valid.mp4" and pending["has_image"] == "true"
+        assert pending["display_width"] == initial["display_width"] and pending["zoom"] == initial["zoom"]
+        from PIL import Image, ImageChops
+        previous = Image.open(OUT / "video-loading-image.png").crop((420, 250, 660, 450)).convert("RGB")
+        retained = Image.open(OUT / "video-loading-pending.png").crop((420, 250, 660, 450)).convert("RGB")
+        assert ImageChops.difference(previous, retained).getbbox() is None, "Previous picture changed during video open"
+        # The destructive and copy commands share this Shell gate. Test it on
+        # generated fixture data without accessing the user's clipboard.
+        key(0x2E)
+        blocked = snapshot("video-loading-action-blocked", refresh=False, wait_loading=False)
+        assert blocked["status"] == "Wait for the media to finish loading", blocked
+        assert blocked["loading"] == "true" and (folder / "1-valid.mp4").exists()
+        # Cancelling the delayed open must release the old generation; a later
+        # successful open must show the new file only after its first frame.
+        key(0x25)
+        assert snapshot("video-loading-cancelled")["filename"] == "0-image.png"
+        key(0x27)
+        ready = snapshot("video-loading-ready")
+        assert ready["filename"] == ready["displayed"] == ready["requested"] == "1-valid.mp4"
+        assert ready["video"] == "true" and ready["media_ready"] == "true" and ready["error"] == ""
+        key(0x27)
+        pending = snapshot("video-loading-invalid-pending", refresh=False, wait_loading=False)
+        assert pending["loading"] == "true" and pending["displayed"] == "1-valid.mp4", pending
+        failed = snapshot("video-loading-failed")
+        assert failed["loading"] == "false" and failed["error"] != "", failed
+        assert failed["has_image"] == "true" and failed["displayed"] == "1-valid.mp4"
+        assert failed["requested"] == "2-broken.mp4" and failed["status"].startswith("Couldn't open")
+        print("PASS: previous bitmap/view retained during slow native open, Shell action blocked, cancellation, first-frame adoption, failed video retains previous frame")
+    elif scenario == "video":
         wait_for(state_file.exists, seconds=25)
         values=snapshot("video-playing")
         assert values["video"] == "true" and float(values["video_duration"]) > 5
@@ -438,7 +549,9 @@ try:
         user.PostMessageW(hwnd, 0x200, 1, 640 | (420 << 16))
         user.PostMessageW(hwnd, 0x202, 0, 640 | (420 << 16))
         pan = snapshot("05a-pan")
-        assert float(pan["pan_x"]) == 100 and float(pan["pan_y"]) == 50
+        # Windows rounds posted logical coordinates to physical pixels. At
+        # fractional DPI the round trip can differ by less than one logical px.
+        assert abs(float(pan["pan_x"]) - 100) < 1 and abs(float(pan["pan_y"]) - 50) < 1, pan
         key(0xBB)
         assert snapshot("06-zoom")["zoom"] == "120%"
         user.PostMessageW(hwnd, 0x20A, 120 << 16, 640 | (420 << 16))

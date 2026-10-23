@@ -333,7 +333,7 @@ pub(crate) fn image_pending<R: BufRead + Seek>(
             return Err(Error::MemoryBudget);
         }
     }
-    let may_have_alpha = probe.color_type().has_alpha();
+    let mut may_have_alpha = probe.color_type().has_alpha();
     // The picture's own orientation wins; a container around it may supply one.
     let orientation = match probe.orientation() {
         Ok(found) if found != image::metadata::Orientation::NoTransforms => found,
@@ -343,12 +343,19 @@ pub(crate) fn image_pending<R: BufRead + Seek>(
     let photo = photo_from_exif(probe.exif_metadata().ok().flatten().as_deref());
     drop(probe);
     let mut source = open()?;
+    let tga_alpha = if format == Format::Tga {
+        let alpha = tga_alpha(&mut source)?;
+        source.seek(SeekFrom::Start(0))?;
+        Some(alpha)
+    } else {
+        None
+    };
     let mut loops = Loops(Some(1));
     // Animations fit and colour-convert frames as they arrive; stills and
     // one-frame animations hold the full, unconverted canvas until below.
     let mut fitted = false;
     let mut oriented = false;
-    let frames = match format {
+    let mut frames = match format {
         Format::Gif => {
             // GIF stores *additional* repetitions; image's generic loop API does
             // not distinguish an absent extension. Parse only structural blocks.
@@ -455,6 +462,23 @@ pub(crate) fn image_pending<R: BufRead + Seek>(
             }
         }
     };
+    if let Some(alpha) = tga_alpha {
+        // A 32-bit TGA can use its fourth byte as padding. Treating that byte
+        // as alpha makes many ordinary game textures disappear completely.
+        for pixel in frames[0].rgba.chunks_exact_mut(4) {
+            match alpha {
+                TgaAlpha::Opaque => pixel[3] = 255,
+                TgaAlpha::Premultiplied if pixel[3] != 0 && pixel[3] != 255 => {
+                    let a = u32::from(pixel[3]);
+                    for channel in &mut pixel[..3] {
+                        *channel = ((u32::from(*channel) * 255 + a / 2) / a).min(255) as u8;
+                    }
+                }
+                _ => {}
+            }
+        }
+        may_have_alpha &= !matches!(alpha, TgaAlpha::Opaque);
+    }
     Ok(Pending {
         format,
         frames,
@@ -468,6 +492,60 @@ pub(crate) fn image_pending<R: BufRead + Seek>(
         fitted,
         oriented,
         stored: None,
+    })
+}
+
+#[derive(Clone, Copy)]
+enum TgaAlpha {
+    Opaque,
+    Straight,
+    Premultiplied,
+}
+
+/// The TGA 2 extension gives an explicit alpha type, taking precedence over
+/// the old header's attribute-bit count. It is metadata in this same stream;
+/// developer-area offsets and all other optional data are never followed.
+fn tga_alpha<R: Read + Seek>(reader: &mut R) -> Result<TgaAlpha, Error> {
+    let mut header = [0u8; 18];
+    reader.read_exact(&mut header)?;
+    let fallback = if header[17] & 15 == 0 {
+        TgaAlpha::Opaque
+    } else {
+        TgaAlpha::Straight
+    };
+    let length = reader.seek(SeekFrom::End(0))?;
+    if length < 26 {
+        return Ok(fallback);
+    }
+    reader.seek(SeekFrom::End(-26))?;
+    let mut footer = [0u8; 26];
+    reader.read_exact(&mut footer)?;
+    if &footer[8..] != b"TRUEVISION-XFILE.\0" {
+        return Ok(fallback);
+    }
+    let offset = u64::from(u32::from_le_bytes(footer[..4].try_into().unwrap()));
+    if offset == 0 {
+        return Ok(fallback);
+    }
+    let bad = || Error::Corrupted("TGA: the extension area is cut short".into());
+    if offset < 18 || offset.checked_add(495).is_none_or(|end| end > length - 26) {
+        return Err(bad());
+    }
+    reader.seek(SeekFrom::Start(offset))?;
+    let mut size = [0u8; 2];
+    reader.read_exact(&mut size)?;
+    let size = u64::from(u16::from_le_bytes(size));
+    if size < 495 || offset + size > length - 26 {
+        return Err(bad());
+    }
+    reader.seek(SeekFrom::Start(offset + 494))?;
+    let mut kind = [0u8; 1];
+    reader.read_exact(&mut kind)?;
+    Ok(match kind[0] {
+        0 | 1 => TgaAlpha::Opaque,
+        2 | 3 => TgaAlpha::Straight,
+        4 => TgaAlpha::Premultiplied,
+        _ => return Err(Error::Unsupported),
     })
 }
 /// A decoded canvas that still needs orientation, fitting and colour conversion.

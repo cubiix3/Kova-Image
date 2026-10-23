@@ -81,32 +81,53 @@ impl App {
                 }
             }
         }
-        self.image = None;
-        self.displayed = Some(path.clone());
         self.video_stamp = Some(source.stamp.clone());
         self.video_kind = Some(source.kind);
         self.audio_info = source.audio.clone();
-        let audio = source.kind.is_audio();
-        let cover = source.audio.as_ref().and_then(|a| a.cover.clone());
         // A slideshow plays every video once, whatever the saved settings say.
         let autoplay = self.settings.video_autoplay || self.slideshow;
         let looping = self.settings.video_loop && !self.slideshow;
         self.paused = !autoplay;
+        // Admission is not successful playback. Retain the displayed image,
+        // path and view until a valid video frame or ready audio state arrives.
+        // The requested/displayed mismatch also keeps Shell actions disabled.
+        if let Some(player) = &self.video {
+            player.audio(self.volume, self.muted);
+            player.hidden(self.hidden);
+            player.open(
+                self.id,
+                source,
+                autoplay,
+                looping,
+                self.presentation_viewport(),
+            );
+        }
+    }
+    fn present_video(&mut self) {
+        let Some(path) = self.requested.clone() else {
+            return;
+        };
+        self.image = None;
+        self.displayed = Some(path.clone());
         self.view.reset(Fit::Window);
         if let Some(ui) = self.ui.upgrade() {
+            let audio = self.video_kind.is_some_and(|kind| kind.is_audio());
+            let cover = self
+                .audio_info
+                .as_ref()
+                .and_then(|info| info.cover.as_ref());
             ui.set_muted(self.muted);
             ui.set_is_video(true);
             ui.set_is_audio(audio);
-            ui.set_has_image(false);
             ui.set_has_cover(cover.is_some());
-            // A cover is shown once the file is ready, with the controls.
-            ui.set_picture(
-                cover
-                    .as_deref()
-                    .map_or_else(slint::Image::default, cover_picture),
-            );
-            let tags = source
-                .audio
+            ui.set_transparent(false);
+            if audio {
+                ui.set_picture(
+                    cover.map_or_else(slint::Image::default, |cover| cover_picture(cover)),
+                );
+            }
+            let tags = self
+                .audio_info
                 .as_ref()
                 .map(|a| a.tags.clone())
                 .unwrap_or_default();
@@ -125,17 +146,6 @@ impl App {
             ui.set_time_label("0:00 / 0:00".into());
             ui.set_video_progress(0.);
         }
-        if let Some(player) = &self.video {
-            player.audio(self.volume, self.muted);
-            player.hidden(self.hidden);
-            player.open(
-                self.id,
-                source,
-                autoplay,
-                looping,
-                self.presentation_viewport(),
-            );
-        }
     }
     fn video_update(&mut self, update: PresentedVideo) {
         if update.id != self.id || self.video_stamp.is_none() || self.video_delete.is_some() {
@@ -152,9 +162,18 @@ impl App {
             }
             Ok(mut state) => {
                 let audio = self.video_kind.is_some_and(|k| k.is_audio());
+                let first = self.video_state.is_none();
+                if first && !audio && update.frame.is_none() {
+                    // Metadata alone must not replace a successfully displayed
+                    // picture, or make pending media eligible for copy/delete.
+                    return;
+                }
                 if audio {
                     // Sound has no frame size; the cover, if any, sets the view.
                     (state.width, state.height) = self.audio_size();
+                }
+                if first {
+                    self.present_video();
                 }
                 ui.set_time_label(
                     format!(
@@ -166,7 +185,12 @@ impl App {
                 );
                 ui.set_video_progress((state.position / state.duration) as f32);
                 ui.set_paused(self.paused || state.ended);
-                let first = self.video_state.is_none();
+                let audio_unavailable = state.audio_unavailable
+                    && (self
+                        .video_state
+                        .as_ref()
+                        .is_none_or(|s| !s.audio_unavailable)
+                        || (update.frame.is_some() && !ui.get_has_image()));
                 let was_ended = self.video_state.as_ref().is_some_and(|s| s.ended);
                 let ended = state.ended;
                 self.video_state = Some(state);
@@ -206,6 +230,9 @@ impl App {
                     self.update_view();
                     self.video_info();
                 }
+                if audio_unavailable {
+                    self.feedback("Audio output unavailable — playing video silently");
+                }
             }
         }
     }
@@ -213,29 +240,36 @@ impl App {
         if let Some(player) = &self.video {
             player.stop();
         }
-        self.image = None;
-        self.displayed = None;
+        let keep_previous = self.video_state.is_none()
+            && self.displayed.is_some()
+            && self.ui.upgrade().is_some_and(|ui| ui.get_has_image());
+        if !keep_previous {
+            self.image = None;
+            self.displayed = None;
+        }
         self.video_state = None;
         self.video_stamp = None;
         self.video_kind = None;
         self.audio_info = None;
         if let Some(ui) = self.ui.upgrade() {
-            ui.set_picture(slint::Image::default());
-            ui.set_has_image(false);
+            if !keep_previous {
+                ui.set_picture(slint::Image::default());
+                ui.set_has_image(false);
+                ui.set_image_detail("".into());
+                ui.set_info_fields(slint::ModelRc::default());
+                ui.set_filename(
+                    path.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .as_ref()
+                        .into(),
+                );
+            }
             ui.set_has_cover(false);
             ui.set_loading(false);
             ui.set_is_video(false);
             ui.set_is_audio(false);
             ui.set_animated(false);
-            ui.set_image_detail("".into());
-            ui.set_info_fields(slint::ModelRc::default());
-            ui.set_filename(
-                path.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .as_ref()
-                    .into(),
-            );
             ui.set_error_title(
                 match error {
                     Error::NotFound => "File not found",
@@ -246,7 +280,15 @@ impl App {
                 .into(),
             );
             ui.set_error_detail(error.to_string().into());
-            ui.set_status("".into());
+            ui.set_status(if keep_previous {
+                format!(
+                    "Couldn't open {}: {error}",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                )
+                .into()
+            } else {
+                "".into()
+            });
         }
         self.slideshow_after_error();
     }
@@ -364,6 +406,12 @@ impl App {
                 }
                 .into(),
             ));
+            if state.audio_unavailable {
+                fields.push((
+                    "Audio",
+                    "Output device unavailable; playing silently".into(),
+                ));
+            }
             fields.push(("Location", path.to_string_lossy().into_owned()));
             let fields = fields
                 .into_iter()

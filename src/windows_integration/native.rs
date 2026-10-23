@@ -81,7 +81,7 @@ pub fn logical_key(name: &std::ffi::OsStr) -> Vec<u16> {
 }
 /// The Shell's own filename order, the one Explorer sorts by: case-insensitive,
 /// numbers by value, accented letters beside their base letter.
-pub fn compare_logical(left: &[u16], right: &[u16]) -> std::cmp::Ordering {
+pub(crate) fn compare_logical(left: &[u16], right: &[u16]) -> std::cmp::Ordering {
     debug_assert!(left.last() == Some(&0) && right.last() == Some(&0));
     // SAFETY: `logical_key` terminates both slices, and they outlive the call.
     unsafe { StrCmpLogicalW(PCWSTR(left.as_ptr()), PCWSTR(right.as_ptr())) }.cmp(&0)

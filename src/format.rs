@@ -100,13 +100,16 @@ pub const RAW_EXTENSIONS: &[&str] = &[
     "3fr", "ari", "arw", "cr2", "cr3", "crw", "dcr", "dng", "erf", "iiq", "kdc", "mef", "mrw",
     "nef", "nrw", "orf", "pef", "raf", "rw2", "rwl", "sr2", "srf", "srw", "x3f",
 ];
+/// Common file-name aliases for the same Truevision TGA container.
+const TGA_EXTENSIONS: &[&str] = &["tga", "targa", "icb", "vda", "vst"];
 /// Extensions of every image format, for folder listings, the file picker and
 /// Open with registration.
 pub const IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "jpe", "png", "apng", "gif", "webp", "bmp", "tif", "tiff", "ico", "tga", "pbm",
-    "pgm", "ppm", "pnm", "pam", "qoi", "dds", "hdr", "exr", "ff", "jxl", "avif", "heic", "heif",
-    "svg", "svgz", "3fr", "ari", "arw", "cr2", "cr3", "crw", "dcr", "dng", "erf", "iiq", "kdc",
-    "mef", "mrw", "nef", "nrw", "orf", "pef", "raf", "rw2", "rwl", "sr2", "srf", "srw", "x3f",
+    "jpg", "jpeg", "jpe", "jfif", "jif", "png", "apng", "gif", "webp", "bmp", "tif", "tiff", "ico",
+    "tga", "targa", "icb", "vda", "vst", "pbm", "pgm", "ppm", "pnm", "pam", "qoi", "dds", "hdr",
+    "exr", "ff", "jxl", "avif", "heic", "heif", "hif", "svg", "svgz", "3fr", "ari", "arw", "cr2",
+    "cr3", "crw", "dcr", "dng", "erf", "iiq", "kdc", "mef", "mrw", "nef", "nrw", "orf", "pef",
+    "raf", "rw2", "rwl", "sr2", "srf", "srw", "x3f",
 ];
 
 fn is(extension: Option<&str>, list: &[&str]) -> bool {
@@ -224,12 +227,6 @@ pub fn sniff(head: &[u8], extension: Option<&str>) -> Option<Format> {
         }
         return None;
     }
-    // A RAW file starts like a TIFF, so its extension must win over the signature.
-    // No RAW container starts like a TGA header (its second byte is 0 or 1), so a
-    // TGA with a RAW extension is not mistaken for one.
-    if is(extension, RAW_EXTENSIONS) && !is_tga_header(head) {
-        return Some(Format::Raw);
-    }
     if is(extension, &["svgz"]) && head.starts_with(&[0x1f, 0x8b]) {
         return Some(Format::Svg);
     }
@@ -241,19 +238,28 @@ pub fn sniff(head: &[u8], extension: Option<&str>) -> Option<Format> {
     {
         // Seven bytes of "P1".."P7" match many text files; demand the whole token.
         if format != Format::Pnm || is_pnm(head) {
+            // TIFF-based RAW containers share the TIFF signature. Other clear
+            // signatures still win, including a PNG or JPEG renamed to .dng.
+            if format == Format::Tiff && is(extension, RAW_EXTENSIONS) {
+                return Some(Format::Raw);
+            }
             return Some(format);
         }
     }
     if is_svg(head) || (is(extension, &["svg"]) && !head.contains(&0)) {
         return Some(Format::Svg);
     }
-    if is(extension, &["tga"]) {
+    if is(extension, TGA_EXTENSIONS) {
         return Some(Format::Tga);
     }
     // Game and texture folders hold TGA files named .dds, .png and so on. A file
     // that carries an image extension but no known signature is looked at as TGA.
     if is(extension, IMAGE_EXTENSIONS) && is_tga_header(head) {
         return Some(Format::Tga);
+    }
+    // Non-TIFF RAW containers (RAF, CRW and others) have maker-specific headers.
+    if is(extension, RAW_EXTENSIONS) {
+        return Some(Format::Raw);
     }
     None
 }
@@ -264,6 +270,9 @@ mod tests {
     #[test]
     fn signatures_decide_before_extensions() {
         assert_eq!(sniff(b"\x89PNG\r\n\x1a\n", Some("svg")), Some(Format::Png));
+        assert_eq!(sniff(b"\x89PNG\r\n\x1a\n", Some("dng")), Some(Format::Png));
+        assert_eq!(sniff(b"\xff\xd8\xff", Some("arw")), Some(Format::Jpeg));
+        assert_eq!(sniff(b"<svg/>", Some("nef")), Some(Format::Svg));
         assert_eq!(sniff(b"\xff\x0a\0\0", None), Some(Format::JpegXl));
         assert_eq!(
             sniff(b"\0\0\0\x0cJXL \r\n\x87\n", Some("jpg")),
@@ -372,10 +381,10 @@ mod tests {
     fn every_listed_extension_is_known() {
         for extension in IMAGE_EXTENSIONS {
             let known = match *extension {
-                "jpg" | "jpeg" | "jpe" | "png" | "apng" | "gif" | "webp" | "bmp" | "tif"
-                | "tiff" | "ico" | "tga" | "pbm" | "pgm" | "ppm" | "pnm" | "pam" | "qoi"
-                | "dds" | "hdr" | "exr" | "ff" | "jxl" | "avif" | "heic" | "heif" | "svg"
-                | "svgz" => true,
+                "jpg" | "jpeg" | "jpe" | "jfif" | "jif" | "png" | "apng" | "gif" | "webp"
+                | "bmp" | "tif" | "tiff" | "ico" | "tga" | "targa" | "icb" | "vda" | "vst"
+                | "pbm" | "pgm" | "ppm" | "pnm" | "pam" | "qoi" | "dds" | "hdr" | "exr" | "ff"
+                | "jxl" | "avif" | "heic" | "heif" | "hif" | "svg" | "svgz" => true,
                 other => RAW_EXTENSIONS.contains(&other),
             };
             assert!(known, "{extension}");

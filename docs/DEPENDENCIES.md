@@ -81,7 +81,23 @@ camera stored in the file and the Exif block of the container (orientation,
 camera). The scan validates the JPEG structure and refuses lossless JPEG and
 files over 1 GiB (`MAX_RAW_FILE_BYTES`; the file is read through seeks).
 
-**DDS** is read by own code (`src/codecs/dds.rs`), because the crate's decoder covers only DXT1/3/5 and game textures use more: BC1 to BC5 and BC7, uncompressed layouts described by channel masks, and 8 bit palettized textures. It reads the data strip by strip, so memory is the RGBA result only. The BC7 partition tables were extracted from [bcdec](https://github.com/iOrange/bcdec) (MIT or Unlicense, Sergii Kudlai), and the decoder is tested against bcdec's output for random blocks of all eight modes (`scripts/bc7-reference.py`, fixtures `tests/fixtures/bc7.*`); bcdec itself is not part of the program. BC6H, floating point and 16-bit formats are not supported.
+**DDS** is read by own code (`src/codecs/dds.rs`), because the crate's decoder
+covers only DXT1/3/5 and game textures use more: BC1 to BC5 and BC7, uncompressed
+layouts described by channel masks, R16/RG16/RGBA16 UNORM, and 8 bit palettized
+textures. Padded rows are skipped through the reader without allocating their
+padding; at most a 256 KiB scratch row is retained beside the bounded RGBA
+result. DX10 alpha mode distinguishes opaque padding and premultiplied alpha.
+The BC7 partition tables were extracted from [bcdec](https://github.com/iOrange/bcdec)
+(MIT or Unlicense, Sergii Kudlai), and the decoder is tested against bcdec's
+output for random blocks of all eight modes (`scripts/bc7-reference.py`,
+fixtures `tests/fixtures/bc7.*`); bcdec itself is not part of the program.
+BC6H, signed and floating point formats are not supported. The UNORM layouts
+reuse this decoder and introduce no dependency or separate native allocation.
+
+TGA's declared alpha depth and TGA 2 extension attributes decide whether alpha
+is meaningful, padding or premultiplied. This is handled within the existing
+image decode budget. JFIF/JIF, TARGA/ICB/VDA/VST and HIF are aliases for existing
+JPEG, TGA and HEIF decoders, with generated decode/navigation fixtures.
 
 **HEIC/HEIF** is decoded by own code in `src/codecs/hevc` (about 4,300 lines,
 intra pictures only), described in the next section.

@@ -120,19 +120,20 @@ playback needs the Windows Media Foundation components, which Windows N editions
 
 | Format | Support |
 | --- | --- |
-| **JPEG** | Still image with EXIF orientation and ICC color, up to 64 megapixels |
+| **JPEG** | JPG/JPEG/JPE/JFIF/JIF, with EXIF orientation and ICC color, up to 64 megapixels |
 | **PNG / APNG** | Still images and animation with blending and disposal |
 | **GIF** | Animation with timing, loops, transparency and disposal |
 | **WebP** | Still and animated |
 | **BMP, ICO** | Still image |
 | **TIFF** | First page |
 | **AVIF** | Still images (AV1), 8 to 12 bit, with alpha, grids, rotation and mirroring. Animated sequences are not shown. |
-| **HEIC / HEIF** | Still images (HEVC intra pictures), 8 to 12 bit, 4:0:0 to 4:4:4, with alpha, grids, rotation and mirroring. Pictures that use inter prediction, several tiles or the rarer range extension tools show a clear error. See the [patent note](docs/DEPENDENCIES.md#hevc-and-patents). |
+| **HEIC / HEIF / HIF** | Still images (HEVC intra pictures), 8 to 12 bit, 4:0:0 to 4:4:4, with alpha, grids, rotation and mirroring. Pictures that use inter prediction, several tiles or the rarer range extension tools show a clear error. See the [patent note](docs/DEPENDENCIES.md#hevc-and-patents). |
 | **JPEG XL** | Still and animated, converted to sRGB. A 12 MP photo needs about 330 MB while it decodes. |
 | **SVG / SVGZ** | Drawn at the size your view needs. Only images embedded as `data:` URLs are used; no file, network or script access. |
 | **Camera RAW** | The full-size JPEG preview that the camera stored in the file (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF and similar). The raw sensor data is not developed. |
-| **DDS** | The first (largest) picture of a texture: BC1 to BC5 and BC7 (DXT1 to DXT5, ATI1/ATI2, DX10 headers), uncompressed RGB, RGBA, luminance and alpha layouts, and 8 bit palettized textures. BC6H and floating point textures show a clear error. |
-| **TGA, PNM, QOI, HDR, EXR, farbfeld** | Still image. Float formats are tone-mapped to sRGB. |
+| **DDS** | The first (largest) picture of a texture: BC1 to BC5 and BC7 (DXT1 to DXT5, ATI1/ATI2, DX10 headers), uncompressed RGB/RGBA including R16/RG16/RGBA16 UNORM, luminance and alpha layouts, and 8 bit palettized textures. Padded rows and DX10 alpha modes are handled. BC6H, signed and floating point textures show a clear error. |
+| **TGA** | TGA/TARGA/ICB/VDA/VST, including RLE, palette/grayscale layouts and TGA 2 alpha attributes. |
+| **PNM, QOI, HDR, EXR, farbfeld** | Still image. Float formats are tone-mapped to sRGB. |
 | **MP4 / M4V, MOV, MKV** | Bundled FFmpeg decoders, including H.264, HEVC/H.265, AV1 and VP9, with AAC, AC-3, E-AC-3, DTS, Opus and more |
 | **WebM** | Bundled VP8/VP9 and Vorbis/Opus decoders; no Windows codec extension needed |
 | **MP3, M4A, AAC, WAV, FLAC, WMA, Ogg, Opus** | Audio through Windows codecs, with title, artist, album and cover read from ID3 tags, MP4 atoms and FLAC blocks. A FLAC shorter than one second reports no duration in Windows and is refused. |
@@ -145,6 +146,9 @@ HLG) AVIF and HEIC pictures are shown as stored, not tone-mapped. Videos must be
 self-contained local files; streaming, subtitles and DRM are out of scope. See
 the [video architecture](docs/VIDEO.md) for details.
 
+See [format coverage and limits](docs/FORMATS.md) for supported variants and the
+remaining compatibility gaps.
+
 ## Keyboard and mouse
 
 | Action | Shortcut |
@@ -155,6 +159,7 @@ the [video architecture](docs/VIDEO.md) for details.
 | Zoom in / out | `+` / `-` or the mouse wheel |
 | Fit / fit width / 100% | `0` / `W` / `1` |
 | Pan | Drag with the left mouse button |
+| Resize the window | Drag any window edge or corner; the image follows the selected fit mode |
 | Fullscreen | `F11` or double-click; `Esc` to leave |
 | Pause / play | `Space` |
 | Slideshow | `F5`; `Esc` stops it |
