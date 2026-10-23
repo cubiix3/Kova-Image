@@ -278,9 +278,16 @@ fn svg_limits_hold_for_hostile_documents() {
     }
     laughs +=
         "]><svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><text>&a9;</text></svg>";
-    let started = std::time::Instant::now();
-    let _ = decoder::load(&temp.write("laughs.svg", laughs.as_bytes()), &ticket);
-    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+    // The first SVG text load also discovers system fonts. Its wall time
+    // depends on installed fonts and parallel test load; assert that the
+    // parser's entity-expansion guard rejects this input instead.
+    let error = decoder::load(&temp.write("laughs.svg", laughs.as_bytes()), &ticket)
+        .err()
+        .expect("the nested entities must be rejected");
+    assert!(
+        matches!(&error, Error::Corrupted(message) if message.contains("entity reference loop")),
+        "{error:?}"
+    );
     assert!(
         decoder::load(
             &temp.write("cut.svg", b"<svg xmlns='http://www.w3.org/2000/svg'><rect"),
