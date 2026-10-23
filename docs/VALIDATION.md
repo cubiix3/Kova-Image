@@ -443,3 +443,22 @@ freedom; current absolute measurements are recorded in VIDEO_MEASUREMENTS.md.
 Clean-VM installation, physical audio sync and arbitrary user videos remain
 outside this developer-machine validation. GitHub Windows CI is required
 separately before merging.
+
+## Deterministic SVG entity-limit regression, 2026-10-23
+
+The PR Windows run above passed, but the subsequent identical-tree `main` run
+failed the SVG hostile-document test's five-second wall-time assertion at
+9.184 seconds. That interval included first-use Windows system-font discovery
+because the generated entity document contains text, alongside other parallel
+format tests. The old assertion discarded the decode result entirely.
+
+The regression now requires the generated nested entities to return the XML
+parser's entity-reference-loop error. Successful decoding or an unrelated error
+fails the test. The existing input, gzip expansion, pixel and truncated-document
+checks remain. No application code, parser budget, font behavior, dependency or
+release binary changes; wall-clock performance belongs to comparable workloads
+rather than a machine-dependent correctness assertion.
+
+Local formatting, locked all-target workspace check, strict Clippy, all 182
+workspace tests (three existing opt-in ignored tests) and both optimized builds
+pass with this regression assertion.
