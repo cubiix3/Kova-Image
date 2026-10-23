@@ -9,7 +9,7 @@ use crate::{
     decoder::{self, Decoded, Pending, PhotoInfo, Stamp, Target},
     error::Error,
     format::Format,
-    security::Ticket,
+    security::{self, Ticket},
 };
 use image::metadata::Orientation;
 use std::io::{BufRead, Cursor, Read, Seek, SeekFrom};
@@ -83,9 +83,9 @@ fn container_exif(
     (&mut *reader)
         .take(length.min(EXIF_BYTES as u64))
         .read_to_end(&mut head)?;
-    match head.get(..2) {
-        Some(b"II") => head[2..4].copy_from_slice(&[0x2a, 0]),
-        Some(b"MM") => head[2..4].copy_from_slice(&[0, 0x2a]),
+    match head.get(..4) {
+        Some([b'I', b'I', _, _]) => head[2..4].copy_from_slice(&[0x2a, 0]),
+        Some([b'M', b'M', _, _]) => head[2..4].copy_from_slice(&[0, 0x2a]),
         _ => return Ok((PhotoInfo::default(), None)),
     }
     let orientation = exif::Reader::new()
@@ -218,6 +218,13 @@ fn examine(
                         let height = u32::from(u16::from_be_bytes([sof[1], sof[2]]));
                         let width = u32::from(u16::from_be_bytes([sof[3], sof[4]]));
                         if sof[0] != 8 || !(sof[5] == 1 || sof[5] == 3) || width == 0 || height == 0
+                        {
+                            return Ok(None);
+                        }
+                        // Prefer a usable smaller preview to a larger picture
+                        // that the normal JPEG path would refuse after reading.
+                        if security::rgba_bytes_within(width, height, security::MAX_JPEG_PIXELS)
+                            .is_err()
                         {
                             return Ok(None);
                         }

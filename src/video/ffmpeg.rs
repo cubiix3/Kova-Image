@@ -144,6 +144,7 @@ pub(super) struct Engine {
     looping: bool,
     last_size: (u32, u32),
     audio_origin: f64,
+    frame_buffer: super::FrameBuffer,
 }
 
 impl Engine {
@@ -153,6 +154,17 @@ impl Engine {
         muted: bool,
         shared: Arc<(Mutex<Desired>, Condvar)>,
         revision: u64,
+    ) -> Result<Self, Error> {
+        Self::open_with_audio(source, volume, muted, shared, revision, Output::new)
+    }
+
+    fn open_with_audio(
+        source: &VideoSource,
+        volume: f64,
+        muted: bool,
+        shared: Arc<(Mutex<Desired>, Condvar)>,
+        revision: u64,
+        open_audio: impl FnOnce(f64, bool) -> Result<Output, Error>,
     ) -> Result<Self, Error> {
         initialize();
         let mut input = Box::new(Input {
@@ -188,6 +200,7 @@ impl Engine {
                 paused: true,
                 ended: false,
                 hardware: false,
+                audio_unavailable: false,
             },
             base: 0.0,
             clock: Instant::now(),
@@ -198,10 +211,17 @@ impl Engine {
             looping: false,
             last_size: (0, 0),
             audio_origin: 0.0,
+            frame_buffer: super::FrameBuffer::default(),
         };
         super::validate_dimensions(engine.state.width, engine.state.height)?;
         if info.audio != 0 {
-            engine.audio = Some(Output::new(volume, muted)?);
+            match open_audio(volume, muted) {
+                Ok(audio) => engine.audio = Some(audio),
+                // Audio output is optional for viewing a video. Decoding still
+                // uses the same admitted file and reports corrupt tracks; only
+                // device initialization falls back to a monotonic silent clock.
+                Err(_) => engine.state.audio_unavailable = true,
+            }
         }
         Ok(engine)
     }
@@ -359,11 +379,8 @@ impl Engine {
         if !self.displayed || (!changed && size == self.last_size) {
             return Ok(None);
         }
-        let mut rgba = Vec::new();
         let bytes = size.0 as usize * size.1 as usize * 4;
-        rgba.try_reserve_exact(bytes)
-            .map_err(|_| Error::MemoryBudget)?;
-        rgba.resize(bytes, 0);
+        let mut rgba = self.frame_buffer.acquire(bytes)?;
         // SAFETY: presentation_size caps the writable packed RGBA buffer at 3840x2160.
         unsafe {
             checked(kova_video_render(
@@ -378,6 +395,7 @@ impl Engine {
             width: size.0,
             height: size.1,
             rgba,
+            buffer: self.frame_buffer.clone(),
         }))
     }
 }
@@ -552,6 +570,73 @@ mod tests {
     }
 
     #[test]
+    fn missing_audio_output_keeps_video_and_seek_available() {
+        let clip = Clip::open(include_bytes!("../../tests/fixtures/codec-hevc.mkv"), "mkv");
+        let source =
+            crate::media::open_video(&clip.path, &crate::security::Generation::default().next())
+                .unwrap();
+        let mut engine = Engine::open_with_audio(
+            &source,
+            0.7,
+            false,
+            clip._player.shared.clone(),
+            0,
+            |_, _| Err(Error::Io("No default audio endpoint".into())),
+        )
+        .unwrap();
+        engine.configure(false, 0.7, false, false, None).unwrap();
+        assert!(engine.state().unwrap().unwrap().audio_unavailable);
+        let mut frame = None;
+        for _ in 0..128 {
+            let state = engine.state().unwrap().unwrap();
+            frame = engine.frame(&state, 64, 48).unwrap();
+            if frame.is_some() {
+                break;
+            }
+        }
+        assert_eq!(frame.unwrap().rgba.len(), 64 * 48 * 4);
+        engine
+            .configure(true, 0.7, false, false, Some(0.8))
+            .unwrap();
+        let mut sought = false;
+        for _ in 0..128 {
+            let state = engine.state().unwrap().unwrap();
+            if engine.frame(&state, 64, 48).unwrap().is_some() {
+                assert!(state.paused && (state.position - 0.8).abs() < 0.01);
+                sought = true;
+                break;
+            }
+        }
+        assert!(sought, "Silent video did not display the seek target");
+    }
+
+    #[test]
+    fn high_frame_rate_video_decodes_every_frame_with_finite_timing() {
+        let mut clip = Clip::open(
+            include_bytes!("../../tests/fixtures/codec-pacing.mp4"),
+            "mp4",
+        );
+        assert_eq!(clip.info.audio, 0);
+        let mut previous: Option<f64> = None;
+        let mut frames = 0;
+        loop {
+            let frame = clip.next();
+            if frame.kind == 0 {
+                break;
+            }
+            assert_eq!(frame.kind, 1);
+            assert!(frame.pts.is_finite());
+            if let Some(previous) = previous {
+                assert!((frame.pts - previous - 1.0 / 60.0).abs() < 0.0001);
+            }
+            previous = Some(frame.pts);
+            frames += 1;
+            assert!(frames <= 72, "Decoder did not reach EOF");
+        }
+        assert_eq!(frames, 72);
+    }
+
+    #[test]
     fn resampled_audio_timestamps_are_continuous_through_eof() {
         let mut clip = Clip::open(
             include_bytes!("../../tests/fixtures/codec-resample.mp4"),
@@ -588,20 +673,26 @@ mod tests {
 
     #[test]
     fn video_rotation_aspect_and_color_match_reference_frames() {
-        for (movie, expected) in [
+        for (movie, expected, dimensions) in [
             (
                 include_bytes!("../../tests/fixtures/codec-color.mp4").as_slice(),
                 include_bytes!("../../tests/fixtures/codec-color.png").as_slice(),
+                (85, 48),
             ),
             (
                 include_bytes!("../../tests/fixtures/codec-rotated.mp4").as_slice(),
                 include_bytes!("../../tests/fixtures/codec-rotated.png").as_slice(),
+                (48, 64),
             ),
         ] {
             let mut clip = Clip::open(movie, "mp4");
             let frame = clip.next();
             assert_eq!(frame.kind, 1);
             let reference = image::load_from_memory(expected).unwrap().to_rgba8();
+            // The rotation fixture must really carry a display matrix. A
+            // metadata option ignored by the encoder once produced an ordinary
+            // landscape clip and silently stopped exercising this code path.
+            assert_eq!(reference.dimensions(), dimensions);
             assert_eq!(
                 (frame.width as u32, frame.height as u32),
                 reference.dimensions()

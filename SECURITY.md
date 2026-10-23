@@ -39,9 +39,11 @@ These measures are **not process isolation**: allocator aborts, native faults,
 codec scratch allocations and GPU memory remain limitations. Read
 [security architecture](docs/SECURITY_ARCHITECTURE.md) before assessing claims.
 
-Native video and audio parsing uses installed Windows Media Foundation components.
-Local streams are admitted without user URLs; external MP4/MOV/M4A data references
-and compressed/reference movies are rejected. Kova Image itself reads only the
-tags and the cover picture of an audio file, within fixed limits. No codecs are downloaded. Native
+Video parsing uses the bundled FFmpeg/dav1d libraries; audio-only playback uses
+installed Windows Media Foundation components. Local streams are admitted without
+user URLs; external MP4/MOV/M4A data references and compressed/reference movies
+are rejected. Video decoders read the retained handle through custom IO with
+network protocols and secondary opens disabled. Kova Image reads audio tags and
+cover pictures within fixed limits. The application downloads no codecs. Native
 codec faults and allocations are not isolated by Rust panic recovery. See
 [video boundaries](docs/VIDEO.md) when reporting playback or parser problems.

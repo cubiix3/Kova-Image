@@ -2,10 +2,13 @@
 use kova_image::{media, security::Generation, video::Player};
 use std::{
     path::PathBuf,
-    sync::mpsc,
+    sync::{Arc, Mutex, mpsc},
     time::{Duration, Instant},
 };
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--pacing")) {
+        return pacing_probe(std::env::args_os().nth(2).map(PathBuf::from));
+    }
     let path = PathBuf::from(
         std::env::args_os()
             .nth(1)
@@ -103,6 +106,67 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The stop acknowledgement must follow release of the admitted file handle.
     drop(std::fs::OpenOptions::new().write(true).open(&path)?);
     println!("PASS: end-of-file, loop restart, confirmed resource release");
+    Ok(())
+}
+/// Opt-in real-time regression: a 10 ms renderer/upload callback still leaves
+/// enough of each 60 Hz interval for this tiny silent clip. A fixed extra
+/// 16 ms sleep used to discard about a third of its frames.
+fn pacing_probe(path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/codec-pacing.mp4")
+        })
+        .canonicalize()?;
+    let source = media::open_video(&path, &Generation::default().next())?;
+    let (tx, rx) = mpsc::sync_channel(4);
+    // Fixed-size measurement state: no frame/timing history is retained.
+    let timings = Arc::new(Mutex::new((0u32, Duration::ZERO, Duration::ZERO)));
+    let observed = timings.clone();
+    let player = Player::new(move |update| {
+        if update.frame.is_some() {
+            let start = Instant::now();
+            std::thread::sleep(Duration::from_millis(10));
+            let elapsed = start.elapsed();
+            if let Ok(mut observed) = observed.lock() {
+                observed.0 += 1;
+                observed.1 += elapsed;
+                observed.2 = observed.2.max(elapsed);
+            }
+        }
+        let _ = tx.try_send(update);
+    })?;
+    let start = Instant::now();
+    player.open(1, source, true, false, (1920, 1080));
+    let mut frames = 0;
+    let duration = loop {
+        let update = rx.recv_timeout(Duration::from_secs(5))?;
+        let state = update.state?;
+        frames += usize::from(update.frame.is_some());
+        if state.ended {
+            break state.duration;
+        }
+        if start.elapsed() > Duration::from_secs(30) {
+            return Err("frame pacing validation timed out".into());
+        }
+    };
+    player
+        .stop_confirmed()
+        .recv_timeout(Duration::from_secs(5))?;
+    // Allow occasional scheduling misses without accepting the previous
+    // roughly 38 fps ceiling. This is opt-in because host load affects timing.
+    let expected = (duration * 60.0).round() as usize;
+    let minimum = (duration * 50.0).ceil() as usize;
+    let timings = timings.lock().map_err(|_| "Pacing measurement poisoned")?;
+    println!(
+        "PACING: delivered {frames}/{expected} frames in {duration:.2}s ({:.2}s wall time); simulated upload mean={:.3}ms max={:.3}ms",
+        start.elapsed().as_secs_f64(),
+        timings.1.as_secs_f64() * 1000.0 / f64::from(timings.0.max(1)),
+        timings.2.as_secs_f64() * 1000.0,
+    );
+    if frames < minimum {
+        return Err(format!("60 fps pacing lost too many frames: {frames}/{expected}").into());
+    }
+    println!("PASS: 60 fps worker pacing with simulated upload");
     Ok(())
 }
 fn media_duration(

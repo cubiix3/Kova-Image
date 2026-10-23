@@ -7,7 +7,7 @@
 //! pixels described by channel masks (RGB, RGBA, luminance, alpha, 8 to 32 bits)
 //! or by common DXGI formats, and 8 bit palettized textures, which older games
 //! used for effects. Not supported, and reported as unsupported: BC6H and
-//! floating point or 16-bit formats, signed formats, and YUV or bump map layouts.
+//! floating point formats, signed formats, and YUV or bump map layouts.
 //!
 //! The data is read strip by strip, so only the RGBA result is kept in memory.
 //! The BC7 partition tables follow the Microsoft BC7 specification; they were
@@ -155,6 +155,8 @@ enum Layout {
         premultiplied: bool,
     },
     Packed(Packed),
+    /// R16, R16G16 or R16G16B16A16 unsigned normalized integer samples.
+    Unorm16(usize),
     /// 8 bit indices into a palette of 256 RGBA entries that follows the header.
     Indexed,
 }
@@ -165,15 +167,27 @@ struct Header {
     layout: Layout,
     /// Bytes per row of an uncompressed texture, when the header states them.
     pitch: Option<usize>,
+    /// DX10 DDS_ALPHA_MODE (0 unspecified, 1 straight, 2 premultiplied,
+    /// 3 opaque, 4 custom). Legacy DXT2/4 handle premultiplication per block.
+    alpha_mode: u32,
 }
 
 impl Header {
-    /// Bytes after each row of `tight` bytes. Writers align rows to four bytes; a
-    /// pitch that differs from the tight one by more is not trusted.
-    fn padding(&self, tight: usize) -> usize {
-        self.pitch
-            .filter(|pitch| (tight..=tight + 3).contains(pitch))
-            .map_or(0, |pitch| pitch - tight)
+    /// Row pitches can use large alignment (for example 256 bytes). Validate
+    /// the whole first surface, then seek over padding without allocating it.
+    fn padding(&self, tight: usize) -> Result<usize, Error> {
+        let pitch = self.pitch.unwrap_or(tight);
+        let padding = pitch
+            .checked_sub(tight)
+            .ok_or_else(|| corrupted("the row pitch is smaller than a row"))?;
+        let needed = (self.height as u64 - 1)
+            .checked_mul(pitch as u64)
+            .and_then(|bytes| bytes.checked_add(tight as u64))
+            .ok_or(Error::TooLarge)?;
+        if needed > security::MAX_FILE_BYTES {
+            return Err(Error::TooLarge);
+        }
+        Ok(padding)
     }
 }
 
@@ -210,6 +224,10 @@ fn dxgi_layout(format: u32) -> Result<Layout, Error> {
         49 => packed(2, 0xff, 0xff00, 0, 0),
         // R8_UNORM, and A8_UNORM which is shown as grey too
         61 | 65 => Layout::Packed(Packed::grey(1, 0xff, 0)),
+        // R16G16B16A16_UNORM, R16G16_UNORM and R16_UNORM.
+        11 => Layout::Unorm16(4),
+        35 => Layout::Unorm16(2),
+        56 => Layout::Unorm16(1),
         _ => return Err(Error::Unsupported),
     })
 }
@@ -249,6 +267,11 @@ fn parse_header(head: &[u8]) -> Result<Header, Error> {
             b"DXT5" => blocks(Compressed::Bc3, false),
             b"ATI1" | b"BC4U" => blocks(Compressed::Bc4, false),
             b"ATI2" | b"BC5U" => blocks(Compressed::Bc5, false),
+            // Legacy D3DFORMAT numeric FourCC values: G16R16,
+            // A16B16G16R16, L16. Each is little endian on disk.
+            b"\x22\0\0\0" => Layout::Unorm16(2),
+            b"\x24\0\0\0" => Layout::Unorm16(4),
+            b"\x51\0\0\0" => Layout::Unorm16(1),
             b"DX10" => {
                 if head.len() < HEADER_DX10 {
                     return Err(corrupted("the DX10 header is cut short"));
@@ -283,11 +306,17 @@ fn parse_header(head: &[u8]) -> Result<Header, Error> {
         return Err(Error::Unsupported);
     };
     let pitch = (le32(head, 8) & DDSD_PITCH != 0).then(|| le32(head, 20) as usize);
+    let alpha_mode = if flags & DDPF_FOURCC != 0 && four_cc == b"DX10" {
+        le32(head, 144) & 7
+    } else {
+        0
+    };
     Ok(Header {
         width,
         height,
         layout,
         pitch,
+        alpha_mode,
     })
 }
 
@@ -758,7 +787,7 @@ pub(super) fn decode(mut reader: Reader, ticket: &Ticket) -> Result<Pending, Err
     let header = parse_header(&head[..if extended { HEADER_DX10 } else { HEADER }])?;
     let (width, height) = (header.width as usize, header.height as usize);
     let mut rgba = vec![0u8; security::rgba_bytes(header.width, header.height)?];
-    let alpha = match header.layout {
+    let mut alpha = match header.layout {
         Layout::Blocks {
             kind,
             premultiplied,
@@ -782,14 +811,14 @@ pub(super) fn decode(mut reader: Reader, ticket: &Ticket) -> Result<Pending, Err
         }
         Layout::Packed(packed) => {
             let mut row = vec![0u8; width * packed.bytes];
-            let mut padding = vec![0u8; header.padding(row.len())];
+            let padding = header.padding(row.len())?;
             for (y, out) in rgba.chunks_exact_mut(width * 4).enumerate() {
                 if y % 16 == 0 {
                     ticket.check()?;
                 }
                 fill(&mut reader, &mut row, ticket)?;
                 if y + 1 < height {
-                    fill(&mut reader, &mut padding, ticket)?;
+                    reader.seek_relative(padding as i64)?;
                 }
                 for (pixel, bytes) in out.chunks_exact_mut(4).zip(row.chunks_exact(packed.bytes)) {
                     let mut value = [0u8; 4];
@@ -799,6 +828,30 @@ pub(super) fn decode(mut reader: Reader, ticket: &Ticket) -> Result<Pending, Err
             }
             packed.a.present()
         }
+        Layout::Unorm16(channels) => {
+            let mut row = vec![0u8; width * channels * 2];
+            let padding = header.padding(row.len())?;
+            for (y, out) in rgba.chunks_exact_mut(width * 4).enumerate() {
+                ticket.check()?;
+                fill(&mut reader, &mut row, ticket)?;
+                if y + 1 < height {
+                    reader.seek_relative(padding as i64)?;
+                }
+                for (pixel, bytes) in out.chunks_exact_mut(4).zip(row.chunks_exact(channels * 2)) {
+                    let mut values = [0, 0, 0, 255];
+                    for (value, sample) in values.iter_mut().zip(bytes.chunks_exact(2)) {
+                        let sample = u32::from(u16::from_le_bytes([sample[0], sample[1]]));
+                        *value = ((sample * 255 + 32767) / 65535) as u8;
+                    }
+                    if channels == 1 {
+                        values[1] = values[0];
+                        values[2] = values[0];
+                    }
+                    pixel.copy_from_slice(&values);
+                }
+            }
+            channels == 4
+        }
         Layout::Indexed => {
             // The palette entries are red, green, blue and alpha. Writers that leave
             // the fourth byte unused set it to zero for every entry: opaque then.
@@ -806,7 +859,7 @@ pub(super) fn decode(mut reader: Reader, ticket: &Ticket) -> Result<Pending, Err
             fill(&mut reader, &mut table, ticket)?;
             let unused = table.chunks_exact(4).all(|entry| entry[3] == 0);
             let mut row = vec![0u8; width];
-            let mut padding = vec![0u8; header.padding(width)];
+            let padding = header.padding(width)?;
             let mut translucent = false;
             for (y, out) in rgba.chunks_exact_mut(width * 4).enumerate() {
                 if y % 16 == 0 {
@@ -814,7 +867,7 @@ pub(super) fn decode(mut reader: Reader, ticket: &Ticket) -> Result<Pending, Err
                 }
                 fill(&mut reader, &mut row, ticket)?;
                 if y + 1 < height {
-                    fill(&mut reader, &mut padding, ticket)?;
+                    reader.seek_relative(padding as i64)?;
                 }
                 for (pixel, &index) in out.chunks_exact_mut(4).zip(&row) {
                     let entry = &table[usize::from(index) * 4..][..4];
@@ -826,6 +879,25 @@ pub(super) fn decode(mut reader: Reader, ticket: &Ticket) -> Result<Pending, Err
             translucent
         }
     };
+    match header.alpha_mode {
+        2 => {
+            for pixel in rgba.chunks_exact_mut(4) {
+                let a = u32::from(pixel[3]);
+                if a != 0 && a != 255 {
+                    for channel in &mut pixel[..3] {
+                        *channel = ((u32::from(*channel) * 255 + a / 2) / a).min(255) as u8;
+                    }
+                }
+            }
+        }
+        3 => {
+            for pixel in rgba.chunks_exact_mut(4) {
+                pixel[3] = 255;
+            }
+            alpha = false;
+        }
+        _ => {}
+    }
     Ok(Pending {
         format: Format::Dds,
         frames: vec![Frame {

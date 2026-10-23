@@ -22,8 +22,8 @@ use rav1d::include::dav1d::{
     picture::Dav1dPicture,
 };
 use rav1d::src::lib::{
-    dav1d_close, dav1d_data_create, dav1d_default_settings, dav1d_get_picture, dav1d_open,
-    dav1d_picture_unref, dav1d_send_data,
+    dav1d_close, dav1d_data_create, dav1d_data_unref, dav1d_default_settings, dav1d_get_picture,
+    dav1d_open, dav1d_picture_unref, dav1d_send_data,
 };
 use std::{
     mem::MaybeUninit,
@@ -71,39 +71,82 @@ pub struct Output {
 
 /// Only one picture is decoded at a time, also after the request that wanted it
 /// has been replaced, so quick browsing cannot pile up decoders.
-static BUSY: AtomicBool = AtomicBool::new(false);
+struct Availability {
+    busy: AtomicBool,
+    poisoned: AtomicBool,
+}
+impl Availability {
+    const fn new() -> Self {
+        Self {
+            busy: AtomicBool::new(false),
+            poisoned: AtomicBool::new(false),
+        }
+    }
+    fn enter(&self, ticket: &Ticket) -> Result<(), Error> {
+        let stopped = || {
+            Error::Corrupted(
+                "AVIF decoding stopped after a decoder fault; restart Kova Image to try again"
+                    .into(),
+            )
+        };
+        loop {
+            ticket.check()?;
+            if self.poisoned.load(Ordering::Acquire) {
+                return Err(stopped());
+            }
+            if self
+                .busy
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                // The previous worker may have faulted after our first check.
+                if self.poisoned.load(Ordering::Acquire) {
+                    self.busy.store(false, Ordering::Release);
+                    return Err(stopped());
+                }
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+    fn release(&self, fault: bool) {
+        if fault {
+            // A panicked context cannot safely be closed. Keep at most this
+            // one abandoned context for the life of the process.
+            self.poisoned.store(true, Ordering::Release);
+        }
+        self.busy.store(false, Ordering::Release);
+    }
+}
+static AVAILABILITY: Availability = Availability::new();
 
 /// Decodes the first picture of an AV1 stream of OBUs, such as an AVIF item.
 /// The stream is untrusted: sizes are checked before any plane is used.
 pub fn decode(obus: Vec<u8>, want: Want, ticket: &Ticket) -> Result<Output, Error> {
-    while BUSY
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
-        ticket.check()?;
-        std::thread::sleep(Duration::from_millis(2));
-    }
+    AVAILABILITY.enter(ticket)?;
     let (sender, receiver) = mpsc::channel();
     let spawned = std::thread::Builder::new()
         .name("av1-decode".into())
         .stack_size(STACK)
         .spawn(move || {
-            let result =
-                catch_unwind(AssertUnwindSafe(|| run(&obus, want))).unwrap_or_else(|panic| {
-                    let message = panic
-                        .downcast_ref::<&str>()
-                        .map(|m| (*m).to_string())
-                        .or_else(|| panic.downcast_ref::<String>().cloned())
-                        .unwrap_or_default();
-                    Err(Error::Corrupted(format!("AV1 decoder panicked: {message}")))
-                });
-            BUSY.store(false, Ordering::Release);
+            let outcome = catch_unwind(AssertUnwindSafe(|| run(&obus, want)));
+            AVAILABILITY.release(outcome.is_err());
+            let result = outcome.unwrap_or_else(|panic| {
+                let message = panic
+                    .downcast_ref::<&str>()
+                    .map(|m| (*m).to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_default();
+                Err(Error::Corrupted(format!(
+                    "AV1 decoder fault: {message}; restart Kova Image to open AVIF files"
+                )))
+            });
             // The receiver is gone when the request was cancelled; the result,
             // pixels included, is dropped here.
             let _ = sender.send(result);
         });
     if let Err(error) = spawned {
-        BUSY.store(false, Ordering::Release);
+        AVAILABILITY.release(false);
         return Err(Error::Io(error.to_string()));
     }
     loop {
@@ -127,6 +170,22 @@ impl Drop for Context {
         }
         // SAFETY: the context came from `dav1d_open` and is closed once.
         unsafe { dav1d_close(NonNull::new(&mut self.0)) };
+    }
+}
+
+/// Sending input transfers ownership only on success. An ordinary decode error
+/// can leave the caller's packet intact, so every normal return must unref it.
+struct Packet(Dav1dData);
+impl Drop for Packet {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            // The C-unwind adapter moves the input before calling the codec.
+            // During a panic its old C fields may already have been released.
+            return;
+        }
+        // SAFETY: the fields came from dav1d_data_create (or are empty after a
+        // successful send). Unref clears them and is called exactly once here.
+        unsafe { dav1d_data_unref(NonNull::new(&mut self.0)) };
     }
 }
 
@@ -185,15 +244,10 @@ fn open(obus: &[u8]) -> Result<Picture, Error> {
     if code < 0 {
         return Err(failed("open", code));
     }
-    let mut data = Dav1dData {
-        data: None,
-        sz: 0,
-        r#ref: None,
-        m: Default::default(),
-    };
+    let mut data = Packet(Dav1dData::default());
     // SAFETY: `data` is a valid structure; on success the call returns a buffer
     // of `obus.len()` bytes that it owns until it is passed to the decoder.
-    let buffer = unsafe { dav1d_data_create(NonNull::new(&mut data), obus.len()) };
+    let buffer = unsafe { dav1d_data_create(NonNull::new(&mut data.0), obus.len()) };
     if buffer.is_null() {
         return Err(Error::MemoryBudget);
     }
@@ -201,9 +255,9 @@ fn open(obus: &[u8]) -> Result<Picture, Error> {
     unsafe { std::ptr::copy_nonoverlapping(obus.as_ptr(), buffer, obus.len()) };
     let mut raw = Dav1dPicture::default();
     loop {
-        if data.sz > 0 {
+        if data.0.sz > 0 {
             // SAFETY: the context is open and `data` holds the buffer made above.
-            let code = unsafe { dav1d_send_data(context.0, NonNull::new(&mut data)) }.0;
+            let code = unsafe { dav1d_send_data(context.0, NonNull::new(&mut data.0)) }.0;
             if code < 0 && code != AGAIN {
                 return Err(failed("send", code));
             }
@@ -216,7 +270,7 @@ fn open(obus: &[u8]) -> Result<Picture, Error> {
         if code != AGAIN {
             return Err(failed("decode", code));
         }
-        if data.sz == 0 {
+        if data.0.sz == 0 {
             // All input is consumed and no picture came out.
             return Err(Error::Corrupted("AV1 stream holds no picture".into()));
         }
@@ -319,5 +373,62 @@ impl Planar for Picture {
             let samples = unsafe { std::slice::from_raw_parts(row.cast::<u16>(), w) };
             out.iter_mut().zip(samples).for_each(|(o, s)| *o = *s);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rav1d::src::{lib::dav1d_data_wrap, send_sync_non_null::SendSyncNonNull};
+    use std::{ffi::c_void, sync::atomic::AtomicUsize};
+
+    static RELEASED: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn a_decoder_fault_blocks_further_allocations_but_plain_errors_allow_retry() {
+        let availability = Availability::new();
+        let ticket = crate::security::Generation::default().next();
+        availability.enter(&ticket).unwrap();
+        availability.release(false);
+        availability.enter(&ticket).unwrap();
+        availability.release(true);
+        for _ in 0..100 {
+            assert!(
+                matches!(availability.enter(&ticket), Err(Error::Corrupted(text)) if text.contains("restart Kova Image"))
+            );
+            assert!(!availability.busy.load(Ordering::Acquire));
+        }
+    }
+
+    unsafe extern "C-unwind" fn release_packet(ptr: *const u8, _: Option<SendSyncNonNull<c_void>>) {
+        // SAFETY: the test transfers one Box<[u8; 4]> to dav1d_data_wrap, which
+        // invokes this callback once when the last packet reference is gone.
+        unsafe { drop(Box::from_raw(ptr.cast_mut().cast::<[u8; 4]>())) };
+        RELEASED.fetch_add(1, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn an_unconsumed_packet_is_released_on_an_error_return() {
+        let before = RELEASED.load(Ordering::SeqCst);
+        let fail = || -> Result<(), Error> {
+            let mut packet = Packet(Dav1dData::default());
+            let bytes = Box::into_raw(Box::new([1u8, 2, 3, 4]));
+            // SAFETY: `bytes` is valid until the release callback takes back the
+            // box; the output packet remains live until this closure returns.
+            let code = unsafe {
+                dav1d_data_wrap(
+                    NonNull::new(&mut packet.0),
+                    NonNull::new(bytes.cast::<u8>()),
+                    4,
+                    Some(release_packet),
+                    None,
+                )
+            }
+            .0;
+            assert_eq!(code, 0);
+            Err(failed("test", -1))
+        };
+        assert!(fail().is_err());
+        assert_eq!(RELEASED.load(Ordering::SeqCst), before + 1);
     }
 }

@@ -366,3 +366,80 @@ executable was updated to that build and the registration check passed again.
 This is a developer-machine registration check, not clean-machine acceptance or
 proof that every video/audio codec is
 available. The native player still depends on installed Windows codecs.
+
+## Format, playback and window reliability, 2026-10-23
+
+The current `origin/main` video/animation changes were fetched before this work.
+Formatting, locked workspace/all-target check, strict all-target Clippy, locked
+workspace tests, the optimized viewer and optimized Explorer preview DLL pass.
+There are 182 passing tests and three existing opt-in ignored tests. The extra
+one-test child-process result isolates the AVIF damaged-input regression and is
+already included in that total. No dependency or lockfile changes were needed.
+
+Generated regressions cover DDS row pitch, 16-bit UNORM and alpha modes; TGA
+padding/footer/premultiplied alpha; seven extension aliases; RAW signature
+precedence and usable preview selection; HEIF aggregate metadata/grid limits;
+HEVC NAL count/cancellation; and AVIF packet ownership/decoder-panic containment.
+See [FORMATS.md](FORMATS.md) for supported variants and remaining gaps. This does
+not establish compatibility with every file carrying a supported extension.
+
+The actual-window resize scenario passes with the default GPU renderer and the
+software renderer: all eight edges/corners, anchored minimum size and ordinary
+image panning. The developer display uses 125% scaling. Negative coordinates and
+DPI-scaled hit zones have unit coverage; a physical drag between monitors with
+different DPI settings remains unverified.
+
+The actual-window delayed-video scenario passes with both renderers. It checks
+that the previous pixels and zoom remain visible during a five-second open,
+pending media cannot be deleted, canceled generations cannot replace the image,
+the first valid frame adopts the new file, and a failed open retains the previous
+picture with a failure notice. The software test waits for zoom refinement and
+the subsequent renderer capture before comparing pixels; it does not compare an
+unfinished render. This delay hook is absent from release builds.
+
+The full image/navigation and full video GUI scenarios also pass with both
+renderers, including transforms, animation pause/resume, keyboard focus,
+fullscreen auto-hide, timeline seeking and compact layout. The image-pan check
+allows less than one logical pixel of coordinate rounding at fractional DPI;
+the observed vertical delta was 50.4 rather than exactly 50 logical pixels.
+
+Native probes pass H.264 1080p60, HEVC/AC3, AV1/Opus, VP9/Vorbis, color and rotated
+video: play, pause, seek, exact EOF, loop and confirmed file-handle release. The
+rotation fixture now actually contains a display matrix and has a portrait pixel
+reference. Audio-endpoint initialization failure has an injected regression:
+video continues silently, while real decode errors still fail.
+
+The controlled debug pacing workload delivers 68/72 frames in each of three final
+runs versus 38/72 before this change, with the same simulated 10 ms presentation
+work. A generated 1080p60 six-second clip delivers 345/360 frames. See
+[VIDEO_MEASUREMENTS.md](VIDEO_MEASUREMENTS.md) for the comparison, timer diagnostic
+and limits. These measure delivery to the callback, not display synchronization.
+
+A single-pass source security audit covered 59 deduplicated first-party files
+and 17 attack surfaces. Five availability/resource findings were fixed and
+source-rechecked; no remaining reportable finding was identified in that reviewed
+scope. This is a partial audit, not a claim that the whole program is secure.
+Deep HEVC decoding stages, all BC7 paths, native process faults and clean-machine
+runtime behavior were not exhaustively verified. No ImageGlass source was copied;
+the project retains its own decoders and MIT OR Apache-2.0 contribution policy.
+
+The portable package passes dependency-license collection and the per-user
+installer builds successfully. After backing up the previous installation, the
+installer updates the viewer, preview DLL and six bundled video DLLs; all eight
+installed binary hashes match the staged optimized build. Setup reports no
+restart required. File-association verification passes all 74 extensions (59
+image, five video, ten audio), including SupportedTypes, Capabilities, quoted
+commands and Open with. User settings and the sampled pre-install default
+ProgID/hash values remain unchanged; the registration test also checks every
+advertised extension's UserChoice before and after its refresh.
+
+The installed optimized viewer opens the generated padded DDS, R16/RGBA16 UNORM
+DDS, zero-padding-alpha TGA and TARGA files with both renderers (ten first-render
+checks). A separate installed-release 1080p60 runtime sample uses isolated
+settings and looping silent video. Over five seconds per phase it records
+81.801% of one logical CPU while playing and zero CPU-counter increments while
+paused or minimized. This short sample does not prove zero idle work or leak
+freedom; current absolute measurements are recorded in VIDEO_MEASUREMENTS.md.
+Clean-VM installation, physical audio sync and arbitrary user videos remain
+outside this developer-machine validation. GitHub Windows CI is required
+separately before merging.

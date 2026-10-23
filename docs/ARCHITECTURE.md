@@ -115,10 +115,19 @@ generation guard on the UI and presents frames without a UI-thread pixel copy. N
 Switching files stops old playback. Videos are never preloaded, cached as whole
 frame sequences or started by folder enumeration. Video metadata and frames
 cross one latest-update slot; state-only updates retain the pending frame.
+The displayed file, bitmap and view stay unchanged until a first video frame
+or ready audio state arrives. Metadata-only video updates do not authorize
+copy/delete actions. An unsuccessful open retains the previous bitmap with a
+failure notice. The worker reuses one capped spare RGBA allocation and counts
+decode/upload work within its frame-poll interval.
 Image handling keeps the existing decode worker/cache. Native calls are not
 forcibly interrupted; FFmpeg's IO and demux interrupt callbacks check revision
 and shutdown. The UI ignores old generations while the worker releases
 old engine resources. A slow native operation can delay the next video request.
+
+Frameless edge/corner resizing applies window bounds from pointer events,
+without entering a native modal resize loop. This keeps frame delivery active;
+minimum dimensions and DPI changes are handled in `app/resize`.
 
 Recycling a video sends Stop and waits for its resource-release acknowledgement
 on the Shell worker. The UI remains responsive. Registration writes only the

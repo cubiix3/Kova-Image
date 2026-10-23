@@ -8,10 +8,80 @@ use std::{
     sync::{Arc, Condvar, Mutex},
     time::{Duration, Instant},
 };
+use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
+
+/// Condvar timeouts otherwise round to the coarse Windows timer tick, turning
+/// a remaining 6 ms frame budget into a roughly 20 ms wait on some machines.
+/// Request precision only while visible video is playing, balanced by Drop.
+#[derive(Default)]
+struct PlaybackTiming {
+    active: bool,
+    requested: bool,
+}
+impl PlaybackTiming {
+    fn set_active(&mut self, active: bool) {
+        if self.active == active {
+            return;
+        }
+        self.active = active;
+        if active {
+            // SAFETY: the successful 1 ms request is paired with the same
+            // period on deactivation or worker shutdown, including errors.
+            self.requested = unsafe { timeBeginPeriod(1) == 0 };
+        } else if self.requested {
+            self.requested = false;
+            // SAFETY: balances exactly one successful timeBeginPeriod(1).
+            unsafe {
+                let _ = timeEndPeriod(1);
+            }
+        }
+    }
+}
+impl Drop for PlaybackTiming {
+    fn drop(&mut self) {
+        self.set_active(false);
+    }
+}
 pub struct Frame {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+    buffer: FrameBuffer,
+}
+const MAX_PRESENTATION_BYTES: usize = 3840 * 2160 * 4;
+/// One spare presentation buffer per engine. The Slint upload consumes a
+/// Frame on the worker, then its allocation can be filled by the next render.
+/// Retaining a Frame elsewhere never permits the pool to accumulate buffers.
+#[derive(Clone, Default)]
+struct FrameBuffer(Arc<Mutex<Vec<u8>>>);
+impl FrameBuffer {
+    fn acquire(&self, bytes: usize) -> Result<Vec<u8>, Error> {
+        if bytes > MAX_PRESENTATION_BYTES {
+            return Err(Error::MemoryBudget);
+        }
+        let mut pixels = self
+            .0
+            .lock()
+            .map(|mut spare| std::mem::take(&mut *spare))
+            .unwrap_or_default();
+        pixels
+            .try_reserve_exact(bytes.saturating_sub(pixels.len()))
+            .map_err(|_| Error::MemoryBudget)?;
+        // Scaling overwrites every pixel. Reusing the length avoids zeroing
+        // the entire 4K buffer each frame; newly grown storage is initialized.
+        pixels.resize(bytes, 0);
+        Ok(pixels)
+    }
+}
+impl Drop for Frame {
+    fn drop(&mut self) {
+        if self.rgba.capacity() <= MAX_PRESENTATION_BYTES
+            && let Ok(mut spare) = self.buffer.0.lock()
+            && spare.capacity() < self.rgba.capacity()
+        {
+            *spare = std::mem::take(&mut self.rgba);
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct VideoState {
@@ -22,6 +92,8 @@ pub struct VideoState {
     pub paused: bool,
     pub ended: bool,
     pub hardware: bool,
+    /// A video can keep playing silently when no audio endpoint is available.
+    pub audio_unavailable: bool,
 }
 pub struct Update {
     pub id: u64,
@@ -172,21 +244,38 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
     let mut report_now = false;
     let mut opened = Instant::now();
     let mut last_report = Instant::now();
+    let mut last_poll = Instant::now();
+    let mut timing = PlaybackTiming::default();
     loop {
         let desired = {
             let (lock, wake) = &*shared;
             let Ok(mut s) = lock.lock() else {
                 return;
             };
+            timing.set_active(
+                engine.is_some()
+                    && s.revision == revision
+                    && needs_precise_timing(
+                        s.paused,
+                        s.hidden,
+                        ended,
+                        engine.as_ref().is_some_and(|engine| engine.audio_only()),
+                        s.quit,
+                    ),
+            );
             if s.revision == revision && s.controls == controls && !s.quit {
                 if engine.is_some() {
                     // Sound has no frames to fetch: the time display needs far fewer checks.
                     let audio = engine.as_ref().is_some_and(|e| e.audio_only());
-                    let wait = if s.paused || s.hidden || ended || audio {
+                    let interval = if s.paused || s.hidden || ended || audio {
                         Duration::from_millis(100)
                     } else {
-                        Duration::from_millis(16)
+                        Duration::from_micros(16_667)
                     };
+                    // Decoding, scaling and delivering a frame belong to this
+                    // interval. Sleeping for a full interval after that work
+                    // needlessly drops 60 fps sources to 30–45 fps.
+                    let wait = poll_delay(interval, last_poll.elapsed());
                     s = match wake.wait_timeout(s, wait) {
                         Ok((s, _)) => s,
                         Err(_) => return,
@@ -203,6 +292,7 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
             s.stopped = None;
             desired
         };
+        last_poll = Instant::now();
         if desired.quit {
             break;
         }
@@ -215,6 +305,10 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
             reported_state = None;
             opened = Instant::now();
             if let Some(source) = &desired.source {
+                #[cfg(debug_assertions)]
+                if delay_test_open(&shared, revision) {
+                    continue;
+                }
                 let result = native::Runtime::new(source.kind.is_audio()).and_then(|r| {
                     runtime = Some(r);
                     native::Engine::open(
@@ -309,6 +403,34 @@ fn worker(shared: Arc<(Mutex<Desired>, Condvar)>, deliver: impl Fn(Update)) {
     drop(engine);
     drop(runtime);
 }
+/// Deterministic visual QA for keeping the previous picture during a slow
+/// native open. The wait is absent from release builds and Stop cancels it.
+#[cfg(debug_assertions)]
+fn delay_test_open(shared: &Arc<(Mutex<Desired>, Condvar)>, revision: u64) -> bool {
+    let Some(millis) = std::env::var("KOVA_TEST_VIDEO_OPEN_DELAY_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|millis| (1..=5_000).contains(millis))
+    else {
+        return false;
+    };
+    let (lock, wake) = &**shared;
+    let Ok(desired) = lock.lock() else {
+        return true;
+    };
+    wake.wait_timeout_while(desired, Duration::from_millis(millis), |desired| {
+        desired.revision == revision && !desired.quit
+    })
+    .map_or(true, |(desired, _)| {
+        desired.revision != revision || desired.quit
+    })
+}
+fn poll_delay(interval: Duration, work: Duration) -> Duration {
+    interval.saturating_sub(work)
+}
+fn needs_precise_timing(paused: bool, hidden: bool, ended: bool, audio: bool, quit: bool) -> bool {
+    !paused && !hidden && !ended && !audio && !quit
+}
 pub fn validate_dimensions(w: u32, h: u32) -> Result<(), Error> {
     if w == 0 || h == 0 || w > 8192 || h > 8192 || u64::from(w) * u64::from(h) > 16_777_216 {
         return Err(Error::Io(
@@ -345,6 +467,78 @@ pub fn time_label(seconds: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn precise_timing_is_released_for_inactive_playback() {
+        assert!(needs_precise_timing(false, false, false, false, false));
+        for flag in 0..5 {
+            let mut inactive = [false; 5];
+            inactive[flag] = true;
+            assert!(!needs_precise_timing(
+                inactive[0],
+                inactive[1],
+                inactive[2],
+                inactive[3],
+                inactive[4],
+            ));
+        }
+        let mut timing = PlaybackTiming::default();
+        timing.set_active(true);
+        timing.set_active(true);
+        timing.set_active(false);
+        assert!(!timing.active && !timing.requested);
+    }
+
+    #[test]
+    fn presentation_buffer_reuses_one_allocation_across_resizes() {
+        let buffer = FrameBuffer::default();
+        let mut pixels = buffer.acquire(16).unwrap();
+        pixels.fill(7);
+        let pointer = pixels.as_ptr();
+        drop(Frame {
+            width: 2,
+            height: 2,
+            rgba: pixels,
+            buffer: buffer.clone(),
+        });
+        let pixels = buffer.acquire(4).unwrap();
+        assert_eq!(pixels.as_ptr(), pointer);
+        assert_eq!(pixels, [7; 4]);
+        let held = Frame {
+            width: 1,
+            height: 1,
+            rgba: pixels,
+            buffer: buffer.clone(),
+        };
+        // A consumer can retain a frame while another is rendered. Returning
+        // them in either order keeps a single spare, with the largest capacity.
+        drop(Frame {
+            width: 4,
+            height: 2,
+            rgba: buffer.acquire(32).unwrap(),
+            buffer: buffer.clone(),
+        });
+        drop(held);
+        assert_eq!(buffer.0.lock().unwrap().capacity(), 32);
+        let pixels = buffer.acquire(32).unwrap();
+        assert_eq!(pixels.len(), 32);
+        assert_eq!(buffer.0.lock().unwrap().capacity(), 0);
+        assert!(buffer.acquire(MAX_PRESENTATION_BYTES + 1).is_err());
+    }
+
+    #[test]
+    fn frame_processing_uses_the_polling_budget() {
+        let interval = Duration::from_micros(16_667);
+        let work = Duration::from_millis(10);
+        assert_eq!(work + poll_delay(interval, work), interval);
+        assert_eq!(
+            poll_delay(interval, Duration::from_millis(30)),
+            Duration::ZERO
+        );
+        assert_eq!(
+            poll_delay(Duration::from_millis(100), work),
+            Duration::from_millis(90)
+        );
+    }
     #[test]
     fn bounded_presentation_and_time() {
         assert_eq!(presentation_size(3840, 2160, 1920, 1080), (1920, 1080));

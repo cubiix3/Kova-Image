@@ -5,7 +5,10 @@
 //! without bound.
 use crate::{error::Error, security::Ticket};
 use image::metadata::Orientation;
-use std::io::{Read, Seek, SeekFrom};
+use std::{
+    io::{Read, Seek, SeekFrom},
+    sync::Arc,
+};
 
 /// Largest `meta` box that is read into memory.
 const MAX_META: u64 = 16 * 1024 * 1024;
@@ -13,6 +16,12 @@ const MAX_META: u64 = 16 * 1024 * 1024;
 pub const MAX_ITEM_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_ITEMS: usize = 20_000;
 const MAX_PROPERTIES: usize = 20_000;
+/// Aggregate counts, including repeated boxes. A property payload is shared,
+/// but associating it with a picture still costs memory and parsing work.
+const MAX_ASSOCIATIONS: usize = MAX_ITEMS * 16;
+const MAX_REFERENCES: usize = MAX_ITEMS * 16;
+/// Total location extents across all items and all iloc boxes, including
+/// entries whose zero-width integers occupy no bytes in the source metadata.
 const MAX_EXTENTS: usize = 1 << 16;
 
 fn bad(message: &str) -> Error {
@@ -122,7 +131,7 @@ pub enum Colr {
         matrix: u16,
         full_range: bool,
     },
-    Icc(Vec<u8>),
+    Icc(Arc<[u8]>),
 }
 /// Clean aperture: the visible window, as fractions of pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -141,9 +150,9 @@ pub enum Property {
     /// 0 mirrors left and right, 1 mirrors top and bottom.
     Imir(u8),
     Clap(Clap),
-    AuxC(String),
+    AuxC(Arc<str>),
     /// Decoder configuration (`av1C`, `hvcC`): the box type and its payload.
-    Config([u8; 4], Vec<u8>),
+    Config([u8; 4], Arc<[u8]>),
     Other,
 }
 
@@ -177,13 +186,13 @@ impl Item {
     }
     pub fn config(&self, kind: &[u8; 4]) -> Option<&[u8]> {
         self.properties.iter().find_map(|p| match p {
-            Property::Config(k, data) if k == kind => Some(data.as_slice()),
+            Property::Config(k, data) if k == kind => Some(data.as_ref()),
             _ => None,
         })
     }
     pub fn aux_type(&self) -> Option<&str> {
         self.properties.iter().find_map(|p| match p {
-            Property::AuxC(urn) => Some(urn.as_str()),
+            Property::AuxC(urn) => Some(urn.as_ref()),
             _ => None,
         })
     }
@@ -297,6 +306,10 @@ impl Container {
         let mut locations = None;
         let mut properties: Vec<Property> = Vec::new();
         let mut associations: Vec<(u32, Vec<u16>)> = Vec::new();
+        let mut association_count = 0;
+        let mut reference_count = 0;
+        let mut location_count = 0;
+        let mut extent_count = 0;
         for (kind, content) in meta.boxes()? {
             let mut b = Bytes::new(content);
             match &kind {
@@ -332,6 +345,9 @@ impl Container {
                         } else {
                             e.u32()?
                         };
+                        if items.len() >= MAX_ITEMS {
+                            return Err(bad("too many items"));
+                        }
                         e.u16()?; // protection index
                         items.push(Item {
                             id,
@@ -342,16 +358,27 @@ impl Container {
                         });
                     }
                 }
-                b"iloc" => locations = Some(Self::locations(&mut b)?),
+                b"iloc" => {
+                    locations = Some(Self::locations(
+                        &mut b,
+                        &mut location_count,
+                        &mut extent_count,
+                    )?)
+                }
                 b"iprp" => {
                     for (kind, content) in b.boxes()? {
                         match &kind {
                             b"ipco" => {
                                 for (kind, content) in Bytes::new(content).boxes()? {
+                                    if properties.len() >= MAX_PROPERTIES {
+                                        return Err(bad("too many properties"));
+                                    }
                                     properties.push(Self::property(&kind, content)?);
                                 }
                             }
-                            b"ipma" => Self::associate(content, &mut associations)?,
+                            b"ipma" => {
+                                Self::associate(content, &mut associations, &mut association_count)?
+                            }
                             _ => {}
                         }
                     }
@@ -365,9 +392,16 @@ impl Container {
                             Ok(if wide { r.u32()? } else { u32::from(r.u16()?) })
                         };
                         let from = id(&mut r)?;
-                        let count = r.u16()?;
+                        let count = usize::from(r.u16()?);
+                        if references.len() >= MAX_ITEMS
+                            || count > 4096
+                            || count > MAX_REFERENCES - reference_count
+                        {
+                            return Err(bad("too many item references"));
+                        }
+                        reference_count += count;
                         let mut to = Vec::new();
-                        for _ in 0..count.min(4096) {
+                        for _ in 0..count {
                             to.push(id(&mut r)?);
                         }
                         references.push(Reference { kind, from, to });
@@ -377,17 +411,20 @@ impl Container {
                 _ => {}
             }
         }
-        if items.len() > MAX_ITEMS {
-            return Err(bad("too many items"));
+        items.sort_unstable_by_key(|item| item.id);
+        if items.windows(2).any(|pair| pair[0].id == pair[1].id) {
+            return Err(bad("duplicate item identifiers"));
         }
         for (id, extents, in_idat) in locations.unwrap_or_default() {
-            if let Some(item) = items.iter_mut().find(|i| i.id == id) {
+            if let Ok(index) = items.binary_search_by_key(&id, |item| item.id) {
+                let item = &mut items[index];
                 item.extents = extents;
                 item.in_idat = in_idat;
             }
         }
         for (id, indices) in associations {
-            if let Some(item) = items.iter_mut().find(|i| i.id == id) {
+            if let Ok(index) = items.binary_search_by_key(&id, |item| item.id) {
+                let item = &mut items[index];
                 for index in indices {
                     // Index 0 means "no property"; indices count from 1.
                     if let Some(p) = (index as usize)
@@ -409,7 +446,11 @@ impl Container {
     }
 
     #[allow(clippy::type_complexity)]
-    fn locations(b: &mut Bytes) -> Result<Vec<(u32, Vec<(u64, u64)>, bool)>, Error> {
+    fn locations(
+        b: &mut Bytes,
+        location_count: &mut usize,
+        extent_count: &mut usize,
+    ) -> Result<Vec<(u32, Vec<(u64, u64)>, bool)>, Error> {
         let (version, _) = b.full()?;
         let sizes = b.u16()?;
         let (offset_size, length_size) = (usize::from(sizes >> 12), usize::from(sizes >> 8 & 15));
@@ -419,9 +460,10 @@ impl Container {
         } else {
             b.u32()?
         };
-        if count as usize > MAX_ITEMS {
+        if count as usize > MAX_ITEMS.saturating_sub(*location_count) {
             return Err(bad("too many item locations"));
         }
+        *location_count += count as usize;
         let mut result = Vec::new();
         for _ in 0..count {
             let id = if version < 2 {
@@ -437,9 +479,10 @@ impl Container {
             b.u16()?; // data reference index
             let base = b.uint(base_size)?;
             let extents = b.u16()?;
-            if usize::from(extents) > MAX_EXTENTS {
+            if usize::from(extents) > MAX_EXTENTS.saturating_sub(*extent_count) {
                 return Err(bad("too many extents"));
             }
+            *extent_count += usize::from(extents);
             let mut list = Vec::new();
             for _ in 0..extents {
                 if version != 0 && index_size > 0 {
@@ -458,11 +501,15 @@ impl Container {
         Ok(result)
     }
 
-    fn associate(content: &[u8], out: &mut Vec<(u32, Vec<u16>)>) -> Result<(), Error> {
+    fn associate(
+        content: &[u8],
+        out: &mut Vec<(u32, Vec<u16>)>,
+        association_count: &mut usize,
+    ) -> Result<(), Error> {
         let mut b = Bytes::new(content);
         let (version, flags) = b.full()?;
         let count = b.u32()?;
-        if count as usize > MAX_ITEMS {
+        if count as usize > MAX_ITEMS.saturating_sub(out.len()) {
             return Err(bad("too many property associations"));
         }
         for _ in 0..count {
@@ -472,6 +519,10 @@ impl Container {
                 b.u32()?
             };
             let n = b.u8()?;
+            if usize::from(n) > MAX_ASSOCIATIONS - *association_count {
+                return Err(bad("too many property associations"));
+            }
+            *association_count += usize::from(n);
             let mut indices = Vec::new();
             for _ in 0..n {
                 indices.push(if flags & 1 == 1 {
@@ -502,7 +553,7 @@ impl Container {
                         full_range: b.u8()? & 0x80 != 0,
                     })
                 }
-                b"prof" | b"rICC" => Property::Colr(Colr::Icc(b.rest().to_vec())),
+                b"prof" | b"rICC" => Property::Colr(Colr::Icc(b.rest().into())),
                 _ => Property::Other,
             },
             b"irot" => Property::Irot(b.u8()? & 3),
@@ -520,15 +571,18 @@ impl Container {
             }
             b"auxC" => {
                 b.full()?;
-                Property::AuxC(b.cstr())
+                Property::AuxC(b.cstr().into())
             }
-            b"av1C" | b"hvcC" => Property::Config(*kind, content.to_vec()),
+            b"av1C" | b"hvcC" => Property::Config(*kind, content.into()),
             _ => Property::Other,
         })
     }
 
     pub fn item(&self, id: u32) -> Option<&Item> {
-        self.items.iter().find(|i| i.id == id)
+        self.items
+            .binary_search_by_key(&id, |item| item.id)
+            .ok()
+            .map(|index| &self.items[index])
     }
     /// Targets of references of `kind` that start at `from`.
     pub fn references_from<'a>(
@@ -599,5 +653,156 @@ impl Container {
             }
         }
         Ok(data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn atom(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut bytes = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+        bytes.extend(kind);
+        bytes.extend(body);
+        bytes
+    }
+
+    fn metadata(ids: &[u16], property: Vec<u8>) -> Vec<u8> {
+        let mut body = vec![0; 4];
+        body.extend(atom(b"pitm", &[0, 0, 0, 0, 0, 1]));
+        let mut info = vec![0; 4];
+        info.extend((ids.len() as u16).to_be_bytes());
+        let mut associations = vec![0; 4];
+        associations.extend((ids.len() as u32).to_be_bytes());
+        for id in ids {
+            let mut entry = vec![2, 0, 0, 0];
+            entry.extend(id.to_be_bytes());
+            entry.extend([0, 0]);
+            entry.extend(b"av01");
+            info.extend(atom(b"infe", &entry));
+            associations.extend(id.to_be_bytes());
+            associations.extend([1, 1]);
+        }
+        body.extend(atom(b"iinf", &info));
+        let mut properties = atom(b"ipco", &property);
+        properties.extend(atom(b"ipma", &associations));
+        body.extend(atom(b"iprp", &properties));
+        body
+    }
+
+    #[test]
+    fn repeated_large_properties_share_their_payloads() {
+        let mut icc = b"prof".to_vec();
+        icc.resize(1024 * 1024, 42);
+        let ids: Vec<_> = (1..=200u16).rev().collect();
+        let body = metadata(&ids, atom(b"colr", &icc));
+        let container = Container::parse_meta(&body, body.len() as u64).unwrap();
+        let Some(Colr::Icc(first)) = container.item(1).unwrap().colr() else {
+            panic!("missing ICC property");
+        };
+        for id in ids {
+            let Some(Colr::Icc(profile)) = container.item(u32::from(id)).unwrap().colr() else {
+                panic!("missing ICC property");
+            };
+            assert!(
+                Arc::ptr_eq(first, profile),
+                "property payload copied for item {id}"
+            );
+        }
+        // Configurations have the same sharing guarantee as profiles.
+        let body = metadata(&[1, 2], atom(b"av1C", &[1, 2, 3, 4]));
+        let container = Container::parse_meta(&body, body.len() as u64).unwrap();
+        let a = container.item(1).unwrap().config(b"av1C").unwrap();
+        let b = container.item(2).unwrap().config(b"av1C").unwrap();
+        assert_eq!(a.as_ptr(), b.as_ptr());
+    }
+
+    #[test]
+    fn association_counts_apply_across_repeated_boxes() {
+        let mut associations = Vec::new();
+        let mut count = 0;
+        let mut full = vec![0; 4];
+        full.extend((MAX_ITEMS as u32).to_be_bytes());
+        for _ in 0..MAX_ITEMS {
+            full.extend([0, 1, 0]);
+        }
+        Container::associate(&full, &mut associations, &mut count).unwrap();
+        let one = [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0];
+        assert!(Container::associate(&one, &mut associations, &mut count).is_err());
+
+        let mut associations = Vec::new();
+        let mut count = MAX_ASSOCIATIONS;
+        let one = [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1];
+        assert!(Container::associate(&one, &mut associations, &mut count).is_err());
+    }
+
+    fn zero_width_locations(extents: &[u16]) -> Vec<u8> {
+        let mut body = vec![0; 6]; // version/flags and all integer widths zero
+        body.extend((extents.len() as u16).to_be_bytes());
+        for count in extents {
+            body.extend(1u16.to_be_bytes()); // item id
+            body.extend(0u16.to_be_bytes()); // data reference
+            body.extend(count.to_be_bytes());
+            // offset and length fields use zero bytes even with many extents.
+        }
+        body
+    }
+
+    fn too_many_extents(result: Result<Container, Error>) {
+        assert!(matches!(result, Err(Error::Corrupted(text)) if text.contains("too many extents")));
+    }
+
+    #[test]
+    fn zero_width_extent_counts_are_bounded_across_items_and_boxes() {
+        let mut body = metadata(&[1], Vec::new());
+        body.extend(atom(b"iloc", &zero_width_locations(&[u16::MAX, 2])));
+        assert!(body.len() < 256);
+        too_many_extents(Container::parse_meta(&body, body.len() as u64));
+
+        let mut body = metadata(&[1], Vec::new());
+        body.extend(atom(b"iloc", &zero_width_locations(&[u16::MAX])));
+        body.extend(atom(b"iloc", &zero_width_locations(&[2])));
+        assert!(body.len() < 256);
+        too_many_extents(Container::parse_meta(&body, body.len() as u64));
+    }
+
+    #[test]
+    fn extent_admission_precedes_the_extent_read_or_allocation_loop() {
+        let mut body = zero_width_locations(&[2]);
+        body[4..6].copy_from_slice(&0x8800u16.to_be_bytes());
+        // The declared extents have no bodies. The budget error must win over
+        // a truncated-input error, proving the count is admitted before reads.
+        let mut location_count = 0;
+        let mut extent_count = MAX_EXTENTS - 1;
+        let result = Container::locations(
+            &mut Bytes::new(&body),
+            &mut location_count,
+            &mut extent_count,
+        );
+        assert!(matches!(result, Err(Error::Corrupted(text)) if text.contains("too many extents")));
+        let mut location_count = MAX_ITEMS;
+        let mut extent_count = 0;
+        let result = Container::locations(
+            &mut Bytes::new(&body),
+            &mut location_count,
+            &mut extent_count,
+        );
+        assert!(
+            matches!(result, Err(Error::Corrupted(text)) if text.contains("too many item locations"))
+        );
+    }
+
+    #[test]
+    fn duplicate_item_ids_and_excess_properties_are_rejected() {
+        let body = metadata(&[1, 1], atom(b"ispe", &[0; 12]));
+        assert!(Container::parse_meta(&body, body.len() as u64).is_err());
+        let mut properties = Vec::new();
+        for _ in 0..MAX_PROPERTIES {
+            properties.extend(atom(b"free", &[]));
+        }
+        let mut body = metadata(&[1], properties);
+        // A second ipco must not reset the aggregate property allowance.
+        body.extend(atom(b"iprp", &atom(b"ipco", &atom(b"free", &[]))));
+        assert!(Container::parse_meta(&body, body.len() as u64).is_err());
     }
 }

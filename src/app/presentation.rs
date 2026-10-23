@@ -80,6 +80,14 @@ impl App {
                     .as_ref()
                     .map(|s| kova_image::viewer::logical_image_size(s.width, s.height, dpi))
             })
+            .or_else(|| {
+                // A previous video frame stays visible while the next file is
+                // opening; its bitmap preserves the aspect ratio on resize.
+                self.ui.upgrade().filter(|ui| ui.get_has_image()).map(|ui| {
+                    let size = ui.get_picture().size();
+                    kova_image::viewer::logical_image_size(size.width, size.height, dpi)
+                })
+            })
             .unwrap_or((1., 1.));
         let viewport = self
             .ui

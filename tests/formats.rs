@@ -337,6 +337,19 @@ fn avif_alpha_comes_from_the_second_picture() {
 }
 #[test]
 fn avif_damage_is_an_error_not_a_panic() {
+    // This deliberately reaches decoder faults. The production circuit breaker
+    // then disables AV1 until restart, so keep damage in a separate process from
+    // the valid-file compatibility tests in this executable.
+    const CHILD: &str = "KOVA_AVIF_DAMAGE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "avif_damage_is_an_error_not_a_panic"])
+            .env(CHILD, "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        return;
+    }
     let temp = Temp::new();
     let ticket = Generation::default().next();
     let good = std::fs::read(fixture("rgba.avif")).unwrap();
@@ -406,6 +419,40 @@ fn raw_shows_the_embedded_preview_with_the_camera_orientation() {
     let mut bare = raw_file(1, &jpeg);
     bare.truncate(5000);
     assert!(load(&temp.write("bare.cr2", &bare)).is_err());
+}
+
+#[test]
+fn clear_signatures_win_even_under_camera_raw_extensions() {
+    let temp = Temp::new();
+    for name in ["picture.dng", "picture.nef", "picture.arw"] {
+        let image = load(&temp.write(name, &red_png())).unwrap();
+        assert_eq!(image.format, Format::Png, "{name}");
+        assert_eq!(pixel(&image, 0, 0), [255, 0, 0, 255]);
+    }
+}
+
+#[test]
+fn raw_short_headers_fail_without_a_contained_panic() {
+    let temp = Temp::new();
+    for bytes in [b"II".as_slice(), b"II*", b"MM", b"MM\0"] {
+        let result = load(&temp.write("short.nef", bytes));
+        assert!(result.is_err());
+        assert!(!matches!(result, Err(Error::Corrupted(text)) if text == "decoder panicked"));
+    }
+}
+
+#[test]
+fn raw_prefers_a_preview_that_meets_the_jpeg_limits() {
+    let temp = Temp::new();
+    let small = jpeg_of(16, 12);
+    let mut too_wide = jpeg_of(64, 48);
+    let sof = too_wide.windows(2).position(|w| w == [0xff, 0xc0]).unwrap();
+    too_wide[sof + 7..sof + 9].copy_from_slice(&40_000u16.to_be_bytes());
+    let mut file = raw_file(1, &small);
+    file.extend(too_wide);
+    let image = load(&temp.write("previews.arw", &file)).unwrap();
+    assert_eq!(image.format, Format::Raw);
+    assert_eq!((image.width, image.height), (16, 12));
 }
 
 #[test]
@@ -661,10 +708,59 @@ fn dds_rows_aligned_to_four_bytes_are_read_with_their_padding() {
     // The last row's padding may be missing from the file.
     let image = dds_load(&file.bytes(&rows[..rows.len() - 3])).unwrap();
     assert_eq!(image.frames[0].rgba[5 * 4..6 * 4], [0, 0, 2, 255]);
-    // A pitch that is not just alignment is not trusted.
+    // The last row never requires trailing padding, even with a large pitch.
     let mut file = packed(3, 1, 0x40, 24, [0xff_0000, 0xff00, 0xff, 0]);
     file.pitch = 4096;
     assert!(dds_load(&file.bytes(&rows[..9])).is_ok());
+}
+
+#[test]
+fn dds_large_row_alignment_is_honored_without_allocating_the_padding() {
+    let mut file = packed(1, 2, ARGB, 32, [0xff, 0xff00, 0xff_0000, 0xff00_0000]);
+    file.pitch = 256;
+    let mut rows = vec![0xee; 256];
+    rows[..4].copy_from_slice(&[1, 2, 3, 255]);
+    rows.extend_from_slice(&[4, 5, 6, 128]);
+    let image = dds_load(&file.bytes(&rows)).unwrap();
+    assert_eq!(image.frames[0].rgba, [1, 2, 3, 255, 4, 5, 6, 128]);
+    file.pitch = 3;
+    assert!(dds_load(&file.bytes(&rows)).is_err());
+    file.pitch = u32::MAX;
+    assert!(matches!(dds_load(&file.bytes(&rows)), Err(Error::TooLarge)));
+    file.pitch = 256;
+    assert!(dds_load(&file.bytes(&rows[..256])).is_err());
+}
+
+#[test]
+fn dds_unsigned_16_bit_samples_are_normalized_strip_by_strip() {
+    let samples = |values: &[u16]| {
+        values
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect::<Vec<_>>()
+    };
+    for file in [
+        dx10(2, 1, 11),
+        Dds {
+            four_cc: 36u32.to_le_bytes(),
+            dxgi: None,
+            ..dx10(2, 1, 11)
+        },
+    ] {
+        let image =
+            dds_load(&file.bytes(&samples(&[65535, 32768, 0, 65535, 0, 257, 65535, 32768])))
+                .unwrap();
+        assert_eq!(image.frames[0].rgba, [255, 128, 0, 255, 0, 1, 255, 128]);
+        assert!(image.alpha);
+    }
+    let image = dds_load(&dx10(2, 1, 35).bytes(&samples(&[65535, 0, 32768, 65535]))).unwrap();
+    assert_eq!(image.frames[0].rgba, [255, 0, 0, 255, 128, 255, 0, 255]);
+    let image = dds_load(&dx10(2, 1, 56).bytes(&samples(&[32768, 65535]))).unwrap();
+    assert_eq!(
+        image.frames[0].rgba,
+        [128, 128, 128, 255, 255, 255, 255, 255]
+    );
+    assert!(!image.alpha);
 }
 
 #[test]
@@ -678,6 +774,20 @@ fn dds_dx10_header_names_the_format() {
     // BC6H holds floating point colour and is not supported.
     let file = dx10(4, 4, 95).bytes(&[0; 16]);
     assert!(matches!(dds_load(&file), Err(Error::Unsupported)));
+}
+
+#[test]
+fn dds_dx10_alpha_mode_distinguishes_padding_from_premultiplied_alpha() {
+    let mut file = dx10(1, 1, 28).bytes(&[128, 64, 32, 128]);
+    file[144..148].copy_from_slice(&2u32.to_le_bytes());
+    let image = dds_load(&file).unwrap();
+    assert_eq!(image.frames[0].rgba, [255, 128, 64, 128]);
+    assert!(image.alpha);
+    file[144..148].copy_from_slice(&3u32.to_le_bytes());
+    file[151] = 0;
+    let image = dds_load(&file).unwrap();
+    assert_eq!(image.frames[0].rgba, [128, 64, 32, 255]);
+    assert!(!image.alpha);
 }
 
 const BC7_BLOCKS: &[u8] = include_bytes!("fixtures/bc7.blocks");
@@ -776,4 +886,132 @@ fn a_tga_that_is_named_like_another_image_is_still_a_tga() {
     }
     // Arbitrary bytes under an image name are still not an image.
     assert!(load(&temp.write("noise.dds", &[0x5a; 200])).is_err());
+}
+
+/// A handmade TGA keeps descriptor and extension fields independent of an
+/// encoder's defaults. Pixel bytes are BGR(A), with a top-left origin.
+fn tga_sample(depth: u8, attributes: u8, pixels: &[u8], alpha_type: Option<u8>) -> Vec<u8> {
+    let mut file = vec![0u8; 18];
+    file[2] = 2;
+    file[12..14].copy_from_slice(&2u16.to_le_bytes());
+    file[14..16].copy_from_slice(&1u16.to_le_bytes());
+    file[16] = depth;
+    file[17] = 0x20 | attributes;
+    file.extend_from_slice(pixels);
+    if let Some(alpha_type) = alpha_type {
+        let offset = file.len() as u32;
+        let mut extension = [0u8; 495];
+        extension[..2].copy_from_slice(&495u16.to_le_bytes());
+        extension[494] = alpha_type;
+        file.extend(extension);
+        file.extend(offset.to_le_bytes());
+        file.extend(0u32.to_le_bytes());
+        file.extend(b"TRUEVISION-XFILE.\0");
+    }
+    file
+}
+
+#[test]
+fn tga_unused_attribute_bytes_do_not_make_textures_invisible() {
+    let temp = Temp::new();
+    let data = [10, 20, 30, 0, 40, 50, 60, 0];
+    for (attributes, alpha_type) in [(0, None), (8, Some(0)), (8, Some(1))] {
+        let file = tga_sample(32, attributes, &data, alpha_type);
+        let image = load(&temp.write("opaque.tga", &file)).unwrap();
+        assert_eq!(image.frames[0].rgba, [30, 20, 10, 255, 60, 50, 40, 255]);
+        assert!(!image.alpha);
+    }
+    // A useful alpha declaration is meaningful even when every value is zero.
+    for (attributes, alpha_type) in [(8, None), (0, Some(3))] {
+        let image = load(&temp.write(
+            "transparent.tga",
+            &tga_sample(32, attributes, &data, alpha_type),
+        ))
+        .unwrap();
+        assert_eq!(image.frames[0].rgba, [30, 20, 10, 0, 60, 50, 40, 0]);
+        assert!(image.alpha);
+    }
+}
+
+#[test]
+fn tga_extension_premultiplied_alpha_is_returned_straight() {
+    let temp = Temp::new();
+    let file = tga_sample(32, 8, &[32, 64, 128, 128, 1, 2, 3, 255], Some(4));
+    let image = load(&temp.write("premultiplied.tga", &file)).unwrap();
+    assert_eq!(image.frames[0].rgba, [255, 128, 64, 128, 3, 2, 1, 255]);
+    assert!(image.alpha);
+    // An extension offset outside this file must not be followed.
+    let mut bad = file;
+    let footer = bad.len() - 26;
+    bad[footer..footer + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(load(&temp.write("invalid.tga", &bad)).is_err());
+}
+
+#[test]
+fn tga_rle_palette_grey_and_all_origins_still_decode() {
+    let temp = Temp::new();
+    // Two horizontal texels; a right origin reverses them.
+    for origin in [0, 0x10, 0x20, 0x30] {
+        let mut file = tga_sample(24, 0, &[0, 0, 255, 255, 0, 0], None);
+        file[17] = origin;
+        let image = load(&temp.write("origin.tga", &file)).unwrap();
+        let expected = if origin & 0x10 == 0 {
+            [255, 0, 0, 255, 0, 0, 255, 255]
+        } else {
+            [0, 0, 255, 255, 255, 0, 0, 255]
+        };
+        assert_eq!(image.frames[0].rgba, expected, "origin {origin}");
+    }
+    // RLE true colour: one repeated packet containing two pixels.
+    let mut rle = tga_sample(24, 0, &[0x81, 7, 8, 9], None);
+    rle[2] = 10;
+    assert_eq!(
+        load(&temp.write("rle.tga", &rle)).unwrap().frames[0].rgba,
+        [9, 8, 7, 255, 9, 8, 7, 255]
+    );
+    // Indexed colour with a nonzero palette origin, and grey+alpha.
+    let mut mapped = tga_sample(8, 0, &[1, 2], None);
+    mapped[1] = 1;
+    mapped[2] = 1;
+    mapped[3..5].copy_from_slice(&1u16.to_le_bytes());
+    mapped[5..7].copy_from_slice(&2u16.to_le_bytes());
+    mapped[7] = 24;
+    mapped.splice(18..18, [0, 0, 255, 255, 0, 0]);
+    assert_eq!(
+        load(&temp.write("palette.tga", &mapped)).unwrap().frames[0].rgba,
+        [255, 0, 0, 255, 0, 0, 255, 255]
+    );
+    let mut grey = tga_sample(16, 8, &[80, 128, 200, 255], None);
+    grey[2] = 3;
+    assert_eq!(
+        load(&temp.write("grey.tga", &grey)).unwrap().frames[0].rgba,
+        [80, 80, 80, 128, 200, 200, 200, 255]
+    );
+}
+
+#[test]
+fn common_jpeg_tga_and_heif_aliases_decode_and_appear_in_folder_navigation() {
+    use kova_image::folder_navigation::{self, Order};
+    let temp = Temp::new();
+    let jpeg = jpeg_of(2, 1);
+    let tga = tga_sample(24, 0, &[0, 0, 255, 255, 0, 0], None);
+    let heic = std::fs::read(fixture("rgb420.heic")).unwrap();
+    let mut paths = Vec::new();
+    for (extension, bytes, format) in [
+        ("jfif", &jpeg, Format::Jpeg),
+        ("jif", &jpeg, Format::Jpeg),
+        ("targa", &tga, Format::Tga),
+        ("icb", &tga, Format::Tga),
+        ("vda", &tga, Format::Tga),
+        ("vst", &tga, Format::Tga),
+        ("hif", &heic, Format::Heic),
+    ] {
+        let path = temp.write(&format!("picture.{extension}"), bytes);
+        assert_eq!(load(&path).unwrap().format, format, "{extension}");
+        paths.push(path);
+    }
+    let files = folder_navigation::scan(&paths[0], &Generation::default().next(), Order::default())
+        .unwrap();
+    assert_eq!(files.len(), paths.len());
+    assert!(paths.iter().all(|path| files.contains(path)));
 }

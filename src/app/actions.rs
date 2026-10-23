@@ -93,6 +93,9 @@ impl App {
                 });
             }
             Fullscreen => {
+                self.window_resize = None;
+                self.window_drag = None;
+                self.drag = None;
                 let full = !ui.get_fullscreen();
                 ui.window().set_fullscreen(full);
                 ui.set_fullscreen(full);
@@ -161,6 +164,9 @@ impl App {
                 }
             }
             Maximize => {
+                self.window_resize = None;
+                self.window_drag = None;
+                self.drag = None;
                 ui.window().set_maximized(!ui.window().is_maximized());
             }
             Close => {

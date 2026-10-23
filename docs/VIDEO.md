@@ -23,9 +23,9 @@ Audio-only files retain Windows Media Foundation Media Engine.
   entire viewport, including upscaling smaller sources.
 - Autoplay and looping are separate from animated-image settings. Minimized or
   occluded windows pause video/audio while retaining the user's pause preference.
-  Moving the window keeps playback running: the frameless title bar moves the
-  window itself instead of entering the native modal move loop, which would
-  stall frame delivery.
+  Moving and resizing the window keep playback running: the frameless title bar
+  and all eight edge/corner grips apply bounds without entering a native modal
+  move/resize loop, which would stall frame delivery.
 - Each launch owns its window. There is no background service or IPC protocol.
 
 The native worker initializes only for media. Video uses software decoding;
@@ -33,9 +33,27 @@ WASAPI's playback clock drives its picture timing. Timestamped PCM keeps delayed
 audio tracks and gaps in their positions, and drops audio that arrives after
 its playback time. Files without audio use a monotonic clock. Audio-only files
 continue to use Media Engine's synchronization.
-The app polls for new native frames at approximately 60 Hz while playing, sleeps
-between checks and slows polling while paused/hidden. Static images never use
-this worker. Video frames and commands use bounded coalescing mailboxes.
+The app polls for new native frames at approximately 60 Hz while playing. Decode,
+scaling and delivery time are subtracted from that interval, so a busy frame
+does not incur another full 16 ms sleep. Polling slows while paused/hidden.
+Static images never use this worker. Video frames and commands use bounded
+coalescing mailboxes.
+
+Windows condition-variable timeouts can otherwise exceed the remaining frame
+budget because of the default timer resolution. The worker requests a 1 ms
+timer period only while a video is playing and visible. A guard balances each
+successful `timeBeginPeriod(1)` with `timeEndPeriod(1)` when playback pauses,
+becomes hidden, ends, stops, changes source, fails or the worker exits. Audio-only
+playback does not request this period. The worker still sleeps; it does not spin.
+
+This precision has a power cost: more frequent wakeups can reduce CPU sleep time.
+On Windows 10 version 2004 and later the request applies to the calling process;
+older Windows versions can change the system-wide period. Windows 11 does not
+guarantee the requested resolution for an occluded or minimized window. Kova
+pauses hidden playback and releases its request. These are Windows timer
+semantics, not a guarantee of exact wakeups or display synchronization. See
+[Microsoft's timer-period contract](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod)
+and the [controlled pacing measurements](VIDEO_MEASUREMENTS.md#ffmpeg-worker-pacing-2026-10-23).
 
 ![Native video with synthetic test content](images/video.png)
 
@@ -62,11 +80,18 @@ preserving aspect ratio and never enlarging a smaller source. A larger monitor
 still receives at most a 4K presentation buffer. Software scaling and Slint upload use CPU buffers.
 Each maximum RGBA presentation buffer is about 33 MiB at 3840 × 2160. A rotated
 video can need another buffer of that size. One pending native frame, one retained
-native display frame, decoder reference surfaces and renderer textures cost
-additional memory. Stereo 48 kHz float PCM is queued for at most two seconds;
+native display frame, one recycled spare buffer (at most another 33 MiB), decoder
+reference surfaces and renderer textures cost additional memory. The spare is
+reused across frames and never grows into a frame queue.
+Stereo 48 kHz float PCM is queued for at most two seconds;
 the WASAPI endpoint buffer is at most one second. FFmpeg decoders and metadata
 probe decoders receive the pixel/sample limits. Individual FFmpeg allocations
 are limited to 64 MiB. Native-library allocations are not a total-process RAM cap.
+
+If a video has a decoded audio track but no WASAPI output endpoint can be opened,
+its picture continues on a monotonic clock with a visible silent-playback
+notice. The failure does not prevent the video from opening. Audio decoder
+errors still report a playback error; this is not a fallback for missing codecs.
 
 Native codecs may allocate before reporting dimensions. These are application
 admission limits, not a total-process RAM cap or decoder sandbox. Rust cannot
@@ -121,7 +146,6 @@ are linked into the app, dynamically, with GPL/nonfree features excluded.
 ```powershell
 python scripts/video-fixtures.py
 python scripts/video-fixtures.py --codecs
-python scripts/video-fixtures.py --codecs
 python scripts/video-fixtures.py --tests
 python scripts/audio-fixtures.py
 cargo run --locked --example audio_probe -- tests/fixtures/tone.mp3
@@ -132,6 +156,7 @@ cargo run --locked --example video_probe -- artifacts/video-fixtures/clip2.mov
 cargo run --locked --example video_probe -- artifacts/video-fixtures/clip4.mkv
 cargo run --locked --example video_probe -- artifacts/video-codecs/hevc-aac.mkv
 cargo run --locked --example video_probe -- artifacts/video-codecs/h264-ac3.mkv
+cargo run --locked --example video_probe -- --pacing
 cargo build --locked
 python scripts/ui-smoke.py --state=video
 python scripts/ui-smoke.py --state=video --software
@@ -145,14 +170,19 @@ and file-handle release after acknowledged Stop. GUI tests mute their own test
 instance and verify timeline, controls, fullscreen and mixed/stale navigation.
 Device-dependent playback probes are opt-in; admission and bundled decoder tests run
 in ordinary Cargo CI without requiring sound/GPU devices.
+The opt-in `video_probe --pacing` uses a silent 60 fps fixture and a simulated
+10 ms upload callback. An optional path selects another 60 fps test clip. It
+counts worker frame deliveries, not displayed frames, and reports the observed
+callback time. Host load affects this real-time check; it does not run in CI.
 
 The Windows Media Foundation implementation previously failed on HEVC, AC-3,
 VP9/Opus and VP8/Vorbis on the development machine. The bundled decoder checks
 now cover those tracks plus AV1, E-AC-3 and DTS. Cargo tests decode generated
 HEVC/AC-3, AV1/Opus and VP9/Vorbis files without a sound device, and compare
 rotation, sample aspect ratio, BT.709 and full-range color against reference PNGs.
-See [VALIDATION.md](VALIDATION.md) for the current execution record. Old
-[VIDEO_MEASUREMENTS.md](VIDEO_MEASUREMENTS.md) figures describe the MF implementation.
+See [VALIDATION.md](VALIDATION.md) for the current execution record and
+[VIDEO_MEASUREMENTS.md](VIDEO_MEASUREMENTS.md) for current worker pacing checks
+and separately labelled historical MF measurements.
 
 Primary API references: [FFmpeg custom IO](https://ffmpeg.org/doxygen/8.0/avio_read_callback_8c-example.html),
 [FFmpeg decoding](https://ffmpeg.org/doxygen/trunk/demux_decode_8c-example.html),

@@ -78,6 +78,20 @@ Each checks the expected state and keyboard focus at minimum size.
 geometry, feedback while controls are hidden and its expiry, Tab recovery,
 focus/menu/drag retention, and panning beside the floating controls. Run it
 with both the default renderer and `--software` after interaction changes.
+
+`--state=resize` drags all eight window edges/corners through window input,
+checks anchored minimum bounds and verifies that resizing does not pan the
+image. `--state=video-loading` delays native open in a debug build, verifies
+retained pixels/zoom and the Shell action gate, cancels that generation, then
+checks successful first-frame adoption and retention after a failed open. The
+reference image waits for zoom refinement before comparing captured pixels.
+Both scenarios support `--software` and use generated files only.
+
+The opt-in `video_probe --pacing` plays a generated 60 fps clip while simulating
+a 10 ms upload callback. It measures frame deliveries under that workload;
+it is not a display-vsync or end-to-end smoothness measurement. Run it without
+compilation or other performance workloads in parallel. See
+[video measurements](VIDEO_MEASUREMENTS.md) for the observed comparison.
 `--state=pinned` verifies that disabling auto-hide retains the controls in both
 windowed and fullscreen viewing. Each run writes isolated test preferences.
 
